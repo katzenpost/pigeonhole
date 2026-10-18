@@ -80,3 +80,27 @@ func TestMessageEqual(t *testing.T) {
 		t.Error("Equal")
 	}
 }
+
+// A key repeated in a map keeps its last value, as a Python dict does.
+func TestRepeatedKeys(t *testing.T) {
+	var m []byte
+	m = appendHeader(m, 5, 5)
+	m = appendUint(appendText(m, "version"), 3)
+	m = appendBytes(appendText(m, "membership_hash"), make([]byte, 32))
+	m = appendUint(appendText(m, "msg_type"), MsgFileUpload)
+	m = appendUint(appendText(m, "file_upload"), 1)
+	m = appendUint(appendText(m, "file_upload"), 2)
+	g := DecodeGcm(m)
+	if g == nil || len(g.Other) != 1 || !bytes.Equal(g.Other[0].Raw, []byte{2}) {
+		t.Fatalf("repeated field: %+v", g)
+	}
+	var r []byte
+	r = appendHeader(r, 5, 3)
+	r = appendHeader(appendText(r, "please_adds"), 4, 0)
+	r = appendUint(appendText(r, "introducer"), 1)
+	r = appendUint(appendText(r, "introducer"), 2)
+	w := DecodeReplyWho(r)
+	if w == nil || w.Introducer == nil || *w.Introducer != 2 {
+		t.Fatalf("repeated reply field: %+v", w)
+	}
+}

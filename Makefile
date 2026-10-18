@@ -46,3 +46,17 @@ diff-katzenqt:
 	rm -rf $(OUT)/scripts && mkdir -p $(OUT)/scripts
 	RANDOM_RUNS=$(RUNS) RANDOM_OUT=$(OUT)/scripts go test -count=1 -run Random ./protocols/katzenqt1/member/sim/
 	cd $(KATZENQT) && PYTHONPATH=src $(PYTHON) $(CURDIR)/scripts/katzenqt_diff.py $(OUT)/scripts
+
+DAEMON ?= @katzenpost
+
+.PHONY: e2e interop
+
+# Two katzenqt1 clients over the client daemon at DAEMON, on a real mixnet.
+e2e:
+	mkdir -p $(TMPDIR)
+	DAEMON=$(DAEMON) go test -count=1 -timeout 3h -run Live -v ./cmd/katzenqt1/
+
+# katzenqt1 and katzenqt in one group, each way round.
+interop:
+	scripts/interop-katzenqt.sh host $(DAEMON) $(KATZENQT)
+	scripts/interop-katzenqt.sh guest $(DAEMON) $(KATZENQT)

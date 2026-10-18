@@ -36,7 +36,12 @@ type proc struct {
 
 func start(t *testing.T, bin, sock, state, name string) *proc {
 	t.Helper()
-	cmd := exec.Command(filepath.Join(bin, "katzenqt1"), "-sim", sock, "-state", state, "-name", name, "-wait", "60s")
+	return startWith(t, bin, "-sim", sock, "-state", state, "-name", name, "-wait", "60s")
+}
+
+func startWith(t *testing.T, bin string, args ...string) *proc {
+	t.Helper()
+	cmd := exec.Command(filepath.Join(bin, "katzenqt1"), args...)
 	in, _ := cmd.StdinPipe()
 	outp, _ := cmd.StdoutPipe()
 	cmd.Stderr = os.Stderr
@@ -59,10 +64,15 @@ func start(t *testing.T, bin, sock, state, name string) *proc {
 
 func (p *proc) send(line string) { fmt.Fprintln(p.in, line) }
 
-// waitFor waits for a line that ok says yes to, returning it.
+// waitFor waits a minute for a line that ok says yes to, returning it.
 func (p *proc) waitFor(t *testing.T, ok func(string) bool) string {
 	t.Helper()
-	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+	return p.waitLong(t, time.Minute, ok)
+}
+
+func (p *proc) waitLong(t *testing.T, d time.Duration, ok func(string) bool) string {
+	t.Helper()
+	for deadline := time.Now().Add(d); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 		p.mu.Lock()
 		for _, l := range p.lines {
 			if ok(l) {
@@ -77,7 +87,7 @@ func (p *proc) waitFor(t *testing.T, ok func(string) bool) string {
 		default:
 		}
 	}
-	t.Fatal("waited a minute")
+	t.Fatalf("waited %v", d)
 	return ""
 }
 

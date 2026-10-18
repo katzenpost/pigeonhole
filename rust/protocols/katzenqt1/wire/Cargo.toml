@@ -1,0 +1,15 @@
+[package]
+name = "pigeonhole-katzenqt1-wire"
+description = "katzenqt1's wire formats: group chat message fields, GroupChatMessage CBOR and box framing, the reply to a new member, the membership hash"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+sha2.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+hex.workspace = true
