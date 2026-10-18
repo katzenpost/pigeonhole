@@ -32,7 +32,7 @@ type Rosters struct {
 	// Introductions are the members introduced, by Introduction.
 	Introductions ordmap.Map[At, Key]
 	// Keys is every member whose key this member knows: whom a prefix can name.
-	Keys  []Key
+	Keys   []Key
 	keySet map[Key]bool
 }
 

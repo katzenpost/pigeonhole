@@ -245,7 +245,9 @@ func readEvent(j any) member.Event {
 	return nil
 }
 
-func ReadMessage(j any) (*wire.Message, error) { return get(func() *wire.Message { return optMessage(j) }) }
+func ReadMessage(j any) (*wire.Message, error) {
+	return get(func() *wire.Message { return optMessage(j) })
+}
 func ReadPayload(j any) (member.Payload, error) {
 	return get(func() member.Payload { return readPayload(j) })
 }
