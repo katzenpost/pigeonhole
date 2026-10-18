@@ -16,6 +16,16 @@ pub trait Files: Send + Sync {
     fn remove(&self, name: &str) -> std::io::Result<()>;
 }
 
+impl Files for Box<dyn Files> {
+    fn read(&self, name: &str) -> std::io::Result<Vec<u8>> {
+        (**self).read(name)
+    }
+
+    fn remove(&self, name: &str) -> std::io::Result<()> {
+        (**self).remove(name)
+    }
+}
+
 /// What came of an action: an input for the engine now, the action to try again later, or an
 /// input to hand the engine later.
 #[derive(Debug)]

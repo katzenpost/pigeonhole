@@ -46,3 +46,37 @@ fn more_traces() {
     assert!(files > 0);
     println!("{files} traces, {calls} calls, {checks} BACAP checks");
 }
+
+/// Every state in the traces reads back and writes as it was.
+#[test]
+fn state_round_trip() {
+    let mut n = 0;
+    let mut dirs = vec![testdata("groupchat_traces")];
+    if let Ok(d) = std::env::var("TRACES") {
+        dirs.push(d.into());
+    }
+    for dir in dirs {
+        for f in std::fs::read_dir(dir).unwrap() {
+            let f = f.unwrap().path();
+            if f.extension().is_none_or(|e| e != "jsonl") {
+                continue;
+            }
+            for line in std::fs::read_to_string(&f).unwrap().lines() {
+                let l: serde_json::Value = serde_json::from_str(line).unwrap();
+                let g = pigeonhole_katzenqt1_member::trace::read_group(&l["state"])
+                    .unwrap_or_else(|e| panic!("{}: {e}", f.display()));
+                let back: serde_json::Value = serde_json::from_str(
+                    &pigeonhole_katzenqt1_member::trace::group(&g).to_string(),
+                )
+                .unwrap();
+                if let Some(d) =
+                    pigeonhole_katzenqt1_member::trace::diff("state", &back, &l["state"])
+                {
+                    panic!("{}: {d}", f.display());
+                }
+                n += 1;
+            }
+        }
+    }
+    println!("{n} states");
+}

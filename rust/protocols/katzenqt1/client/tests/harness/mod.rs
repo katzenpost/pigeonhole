@@ -6,8 +6,11 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
+use pigeonhole_katzenqt1_client::store::{Options, Store};
 use pigeonhole_katzenqt1_client::{Executor, Files, Outcome};
-use pigeonhole_katzenqt1_engine::{Action, Chat, Engine, Input, Line, State, Status, plain};
+use pigeonhole_katzenqt1_engine::{
+    Action, Chat, Engine, Input, Line, State, Status, StepResult, plain,
+};
 use pigeonhole_katzenqt1_member::Key;
 use pigeonhole_katzenqt1_wire as wire;
 use pigeonhole_transport::sim::World as Sim;
@@ -35,7 +38,13 @@ pub struct Member {
     pub name: String,
     pub eng: Engine,
     pub files: MemFiles,
+    /// When set, keeps the member's state on disk, saved after every step as a client does.
+    pub st: Option<(Store, tempfile::TempDir)>,
 }
+
+/// Told of each action done; when it says so, the member restarts from what is on disk, before
+/// (lost) or after (kept) what came of the action is taken in.
+pub type Crash = Box<dyn FnMut(usize, &Action) -> Option<bool>>;
 
 pub enum Later {
     Act(Action),
@@ -50,7 +59,13 @@ pub struct World {
     pub clock: u64,
     pub held: HashSet<usize>,
     pub epoch: u64,
-    rt: tokio::runtime::Runtime,
+    pub rt: tokio::runtime::Runtime,
+    pub crash: Option<Crash>,
+    pub restarts: HashMap<usize, usize>,
+    /// Check after each step that all the state on disk is what the engine holds.
+    pub check_saved: bool,
+    /// Keep the state of every member on disk, even of those a scenario brings in later.
+    pub disk: bool,
 }
 
 impl Default for World {
@@ -66,6 +81,10 @@ impl Default for World {
             rt: tokio::runtime::Builder::new_current_thread()
                 .build()
                 .unwrap(),
+            crash: None,
+            restarts: HashMap::new(),
+            check_saved: false,
+            disk: false,
         }
     }
 }
@@ -85,18 +104,85 @@ impl World {
                 1530,
             ),
             files: MemFiles::default(),
+            st: None,
         });
         self.members.len() - 1
     }
 
     pub fn feed(&mut self, i: usize, input: Input) {
         let res = self.members[i].eng.step(0, input);
-        let mut files = self.members[i].files.0.lock().unwrap();
-        for f in res.files {
-            files.insert(f.file, f.bytes);
+        self.release(i, res);
+    }
+
+    /// Save what a step changed, then queue the work it asks for.
+    pub fn release(&mut self, i: usize, res: StepResult) {
+        let m = &mut self.members[i];
+        match &mut m.st {
+            Some((st, _)) => {
+                st.commit(&m.eng.state, &res).unwrap();
+                if self.check_saved {
+                    let u = st.unsaved(&m.eng.state).unwrap();
+                    assert!(u.is_empty(), "{}: changed without saying so: {u:?}", m.name);
+                }
+            }
+            None => {
+                let mut files = m.files.0.lock().unwrap();
+                for f in &res.files {
+                    files.insert(f.file.clone(), f.bytes.clone());
+                }
+            }
         }
-        drop(files);
         self.queue.extend(res.actions.into_iter().map(|a| (i, a)));
+    }
+
+    /// Keep every member's state on disk from now on.
+    pub fn on_disk(&mut self) {
+        for m in &mut self.members {
+            if m.st.is_some() {
+                continue;
+            }
+            let dir = tempfile::TempDir::new_in(
+                std::env::var("TMPDIR")
+                    .unwrap_or_else(|_| format!("{}/scratch/tmp", std::env::var("HOME").unwrap())),
+            )
+            .unwrap();
+            let mut st = Store::open(dir.path(), Options { no_sync: true }).unwrap();
+            // What the member did before it had a store is saved now.
+            let mut all = StepResult::default();
+            for c in &m.eng.state.chats {
+                all.changes.chats.insert(c.id.clone());
+                all.changes
+                    .lines
+                    .insert(c.id.clone(), c.log.iter().map(|l| l.id).collect());
+            }
+            st.commit(&m.eng.state, &all).unwrap();
+            m.st = Some((st, dir));
+        }
+    }
+
+    /// Stop member `i`, as a crash would: what it had under way is lost, and it starts again from
+    /// what is on disk.
+    pub fn restart(&mut self, i: usize) {
+        *self.restarts.entry(i).or_default() += 1;
+        self.queue.retain(|q| q.0 != i);
+        self.later.retain(|l| l.1 != i);
+        let m = &mut self.members[i];
+        let (st, _) = m.st.as_mut().expect("a member on disk");
+        let state = st.load(&m.name).unwrap();
+        m.eng = Engine::new(state, 1530);
+        let res = m.eng.resume(0);
+        self.release(i, res);
+    }
+
+    fn files_of(&self, i: usize) -> Box<dyn Files> {
+        match &self.members[i].st {
+            Some((st, _)) => Box::new(st.files()),
+            None => Box::new(self.members[i].files.clone()),
+        }
+    }
+
+    pub fn file(&self, i: usize, name: &str) -> Option<Vec<u8>> {
+        self.files_of(i).read(name).ok()
     }
 
     pub fn act(&mut self) -> bool {
@@ -104,11 +190,21 @@ impl World {
             return false;
         };
         let (who, a) = self.queue.remove(k);
+        let crash = self.crash.as_mut().and_then(|c| c(who, &a));
         let x = Executor {
             backend: self.sim.clone(),
-            files: self.members[who].files.clone(),
+            files: self.files_of(who),
         };
         let o = self.rt.block_on(x.perform(a, |_| async {}));
+        if let Some(lost) = crash {
+            if !lost {
+                if let Outcome::Done(input) = o {
+                    self.feed(who, input);
+                }
+            }
+            self.restart(who);
+            return true;
+        }
         match o {
             Outcome::Retry(a, ms) => self.later.push((self.clock + ms, who, Later::Act(a))),
             Outcome::Later(input, ms) => self.later.push((self.clock + ms, who, Later::In(input))),
@@ -505,6 +601,9 @@ impl World {
             }
             let words: Vec<&str> = cmd.split_whitespace().collect();
             let printed = self.command(&words)?;
+            if self.disk {
+                self.on_disk();
+            }
             if i < lines.len() && lines[i] == "----" {
                 out.push("----".into());
                 i += 1;

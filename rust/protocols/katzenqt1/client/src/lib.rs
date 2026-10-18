@@ -2,5 +2,6 @@
 //! transport.
 
 pub mod exec;
+pub mod store;
 
 pub use exec::{Executor, Files, Outcome, RETRY_MS};

@@ -753,3 +753,257 @@ pub fn replay(text: &str) -> Result<(usize, usize), String> {
     }
     Ok((calls, checks))
 }
+
+// Reading a member's state back from what [`group`] writes, so that the state can be saved in
+// this form.
+
+fn each_pair(j: &Value, mut f: impl FnMut(&Value, &Value) -> R<()>) -> R<()> {
+    for p in arr(j)? {
+        let kv = tup(p, 2)?;
+        f(&kv[0], &kv[1])?;
+    }
+    Ok(())
+}
+
+fn read_at(j: &Value) -> R<At> {
+    let p = tup(j, 2)?;
+    Ok(At {
+        introducer: b(&p[0])?,
+        index: b(&p[1])?,
+    })
+}
+
+fn read_reader(j: &Value) -> R<Reader> {
+    Ok(Reader {
+        stream: b(get(j, "stream")?)?,
+        read_cap: b(get(j, "read_cap")?)?,
+        next: b(get(j, "next")?)?,
+        last: ob(get(j, "last")?)?,
+        passed: us(get(j, "passed")?)?,
+        kept: arr(get(j, "kept")?)?
+            .iter()
+            .map(|k| {
+                let p = tup(k, 3)?;
+                Ok(Kept {
+                    index: b(&p[0])?,
+                    passed: us(&p[1])?,
+                    before: ob(&p[2])?,
+                })
+            })
+            .collect::<R<_>>()?,
+        lost: {
+            let l = get(j, "lost")?;
+            if l.is_null() {
+                None
+            } else {
+                let p = tup(l, 2)?;
+                Some(Lost {
+                    passed: us(&p[0])?,
+                    before: ob(&p[1])?,
+                })
+            }
+        },
+        mode: match s(get(j, "mode")?)?.as_str() {
+            "reading" => Mode::Reading,
+            "scanning" => Mode::Scanning,
+            _ => Mode::Idle,
+        },
+        tried: arr(get(j, "tried")?)?.iter().map(u).collect::<R<_>>()?,
+    })
+}
+
+fn index_pairs(j: &Value) -> R<IndexMap<Key, Index>> {
+    let mut m = IndexMap::new();
+    each_pair(j, |k, v| {
+        m.insert(b(k)?, b(v)?);
+        Ok(())
+    })?;
+    Ok(m)
+}
+
+fn nat_pairs(j: &Value) -> R<IndexMap<Key, u64>> {
+    let mut m = IndexMap::new();
+    each_pair(j, |k, v| {
+        m.insert(b(k)?, u(v)?);
+        Ok(())
+    })?;
+    Ok(m)
+}
+
+/// A member's state, as [`group`] writes it.
+pub fn read_group(j: &Value) -> R<Group> {
+    let r = get(j, "rosters")?;
+    let mut rosters = Rosters::default();
+    each_pair(get(r, "entries")?, |k, v| {
+        let mut ro = Roster::new();
+        each_pair(v, |i, e| {
+            ro.insert(
+                us(i)?,
+                Entry {
+                    key: ob(get(e, "key")?)?,
+                    prefix: ob(get(e, "prefix")?)?,
+                },
+            );
+            Ok(())
+        })?;
+        rosters.entries.insert(b(k)?, ro);
+        Ok(())
+    })?;
+    each_pair(get(r, "started")?, |k, v| {
+        let p = tup(v, 2)?;
+        rosters.started.insert(
+            b(k)?,
+            Started {
+                introducer: b(&p[0])?,
+                top: us(&p[1])?,
+            },
+        );
+        Ok(())
+    })?;
+    each_pair(get(r, "introductions")?, |k, v| {
+        rosters.introductions.insert(read_at(k)?, b(v)?);
+        Ok(())
+    })?;
+    rosters.keys = arr(get(r, "keys")?)?.iter().map(b).collect::<R<_>>()?;
+    let sb = get(j, "sent")?;
+    let mut sent = SentBox::default();
+    each_pair(get(sb, "records")?, |k, v| {
+        let p = get(v, "plaintext")?;
+        sent.records.insert(
+            u(k)?,
+            Record {
+                index: b(get(v, "index")?)?,
+                plaintext: if p.is_null() {
+                    None
+                } else {
+                    Some(read_payload(p)?)
+                },
+                control: bo(get(v, "control")?)?,
+                written: us(get(v, "written")?)?,
+                settled: bo(get(v, "settled")?)?,
+            },
+        );
+        Ok(())
+    })?;
+    let bf = get(sb, "backfilled")?;
+    sent.backfilled = if bf.to_string() == "-1" {
+        None
+    } else {
+        Some(us(bf)?)
+    };
+    let l = get(j, "ledger")?;
+    let mut heard = IndexMap::new();
+    each_pair(get(l, "heard")?, |k, v| {
+        heard.insert(b(k)?, nat_pairs(v)?);
+        Ok(())
+    })?;
+    let inv = get(l, "invitee")?;
+    let ledger = Ledger {
+        published: index_pairs(get(l, "published")?)?,
+        acked_by: nat_pairs(get(l, "acked_by")?)?,
+        heard,
+        induction: match s(get(l, "induction")?)?.as_str() {
+            "catching up" => Induction::CatchingUp,
+            "inducting" => Induction::Inducting,
+            _ => Induction::Idle,
+        },
+        invitee: if inv.is_null() {
+            None
+        } else {
+            let p = tup(inv, 2)?;
+            Some(Invitee {
+                name: s(&p[0])?,
+                read_cap: b(&p[1])?,
+            })
+        },
+        commit: bo(get(l, "commit")?)?,
+        starts: index_pairs(get(l, "starts")?)?,
+    };
+    let mut readers = IndexMap::new();
+    each_pair(get(j, "readers")?, |k, v| {
+        readers.insert(b(k)?, read_reader(v)?);
+        Ok(())
+    })?;
+    let mut pending = IndexMap::new();
+    each_pair(get(j, "pending")?, |k, v| {
+        let mut acks = IndexMap::new();
+        each_pair(get(v, "acks")?, |sk, a| {
+            let p = tup(a, 2)?;
+            acks.insert(
+                b(sk)?,
+                AckedRun {
+                    before: ob(&p[0])?,
+                    now: b(&p[1])?,
+                },
+            );
+            Ok(())
+        })?;
+        pending.insert(
+            us(k)?,
+            Pending {
+                numbers: arr(get(v, "numbers")?)?
+                    .iter()
+                    .map(|x| {
+                        let p = tup(x, 2)?;
+                        Ok(NumberAt {
+                            index: us(&p[0])?,
+                            at: if p[1].is_null() {
+                                None
+                            } else {
+                                Some(read_at(&p[1])?)
+                            },
+                        })
+                    })
+                    .collect::<R<_>>()?,
+                introduced: ob(get(v, "introduced")?)?,
+                acks,
+                control: bo(get(v, "control")?)?,
+            },
+        );
+        Ok(())
+    })?;
+    let ia = get(j, "introduced_at")?;
+    let mut received = IndexMap::new();
+    each_pair(get(j, "received")?, |k, v| {
+        let p = tup(k, 2)?;
+        received.insert(
+            ReceivedAt {
+                sender: b(&p[0])?,
+                index: b(&p[1])?,
+            },
+            us(v)?,
+        );
+        Ok(())
+    })?;
+    Ok(Group {
+        read_cap: b(get(j, "read_cap")?)?,
+        policy: read_retention(get(j, "policy")?)?,
+        recheck: us(get(j, "recheck")?)?,
+        rosters,
+        readers,
+        sent,
+        ledger,
+        epoch: us(get(j, "epoch")?)?,
+        pool: indexes(get(j, "pool")?)?,
+        tip: b(get(j, "tip")?)?,
+        deriving: bo(get(j, "deriving")?)?,
+        outbox: arr(get(j, "outbox")?)?.iter().map(b).collect::<R<_>>()?,
+        pending,
+        tokens: us(get(j, "tokens")?)?,
+        unnumbered: arr(get(j, "unnumbered")?)?
+            .iter()
+            .map(read_at)
+            .collect::<R<_>>()?,
+        introduced_at: if ia.is_null() {
+            None
+        } else {
+            Some(IntroRef {
+                introducer: us(get(ia, "introducer")?)?,
+                index: b(get(ia, "index")?)?,
+            })
+        },
+        joined_through: ob(get(j, "joined_through")?)?,
+        awaiting_start: index_pairs(get(j, "awaiting_start")?)?,
+        received,
+    })
+}
