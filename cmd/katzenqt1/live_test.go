@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -27,12 +28,40 @@ func TestLive(t *testing.T) {
 	}
 }
 
+// TestConversationOverSim runs the live test's conversation over a Pigeonhole in a process of
+// its own, with each pair of clients.
+func TestConversationOverSim(t *testing.T) {
+	goBin := filepath.Join(t.TempDir(), "bin")
+	os.Mkdir(goBin, 0o700)
+	build(t, goBin)
+	for _, p := range clients(t, goBin) {
+		t.Run(label(p[0])+"-"+label(p[1]), func(t *testing.T) {
+			sock := filepath.Join(t.TempDir(), "sim.sock")
+			sim := exec.Command(filepath.Join(goBin, "pigeonhole-sim"), "-socket", sock)
+			if err := sim.Start(); err != nil {
+				t.Fatal(err)
+			}
+			defer func() { sim.Process.Kill(); sim.Wait() }()
+			for i := 0; i < 500; i++ {
+				if _, err := os.Stat(sock); err == nil {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			conversation(t, []string{"-sim", sock}, p[0], p[1], 2*time.Minute)
+		})
+	}
+}
+
 func live(t *testing.T, daemon, aliceBin, bobBin string) {
+	conversation(t, []string{"-daemon", daemon}, aliceBin, bobBin, 30*time.Minute)
+}
+
+func conversation(t *testing.T, via []string, aliceBin, bobBin string, long time.Duration) {
 	dir := t.TempDir()
-	long := 30 * time.Minute
 	run := func(bin, name string) *proc {
-		args := []string{"-daemon", daemon, "-state", filepath.Join(dir, name), "-name", name, "-wait", long.String()}
-		if label(bin) == "go" {
+		args := append(append([]string{}, via...), "-state", filepath.Join(dir, name), "-name", name, "-wait", long.String())
+		if label(bin) == "go" && via[0] == "-daemon" {
 			args = append(args, "-log", filepath.Join(dir, name+".log"))
 		}
 		return startWith(t, bin, args...)
@@ -59,7 +88,7 @@ func live(t *testing.T, daemon, aliceBin, bobBin string) {
 	bob.send("send g read you too")
 	alice.waitLong(t, long, func(l string) bool { return l == "LINE g bob: read you too" })
 	bob.waitLong(t, long, func(l string) bool { return l == "LINE g alice: read you" })
-	for deadline := time.Now().Add(long); ; time.Sleep(10 * time.Second) {
+	for deadline := time.Now().Add(long); ; time.Sleep(2 * time.Second) {
 		alice.send("show g")
 		bob.send("show g")
 		time.Sleep(time.Second)
@@ -67,7 +96,10 @@ func live(t *testing.T, daemon, aliceBin, bobBin string) {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("no acknowledgements")
+			alice.mu.Lock()
+			bob.mu.Lock()
+			t.Fatalf("no acknowledgements: alice %v, bob %v\nalice: %s\nbob: %s", alice.has("me ✓✓: hello bob"), bob.has("me ✓✓: hello alice"),
+				strings.Join(alice.lines[max(0, len(alice.lines)-12):], " | "), strings.Join(bob.lines[max(0, len(bob.lines)-12):], " | "))
 		}
 	}
 	step("each saw its first message acknowledged")
