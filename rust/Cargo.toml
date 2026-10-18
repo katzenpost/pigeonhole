@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["protocols/katzenqt1/wire"]
+members = ["protocols/katzenqt1/wire", "protocols/katzenqt1/member"]
 
 [workspace.package]
 edition = "2024"
@@ -11,6 +11,12 @@ version = "0.1.0"
 
 [workspace.dependencies]
 pigeonhole-katzenqt1-wire = { path = "protocols/katzenqt1/wire", version = "0.1.0" }
+pigeonhole-katzenqt1-member = { path = "protocols/katzenqt1/member", version = "0.1.0" }
 sha2 = "0.10"
+blake2 = "0.10"
+indexmap = "2"
+sha3 = "0.10"
+rand = "0.8"
+ed25519-dalek = "2"
 serde_json = { version = "1", features = ["arbitrary_precision"] }
 hex = "0.4"
