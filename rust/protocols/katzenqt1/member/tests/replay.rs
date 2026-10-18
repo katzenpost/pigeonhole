@@ -32,7 +32,7 @@ fn replay_dir(dir: &Path) -> (usize, usize, usize) {
 #[test]
 fn katzenqt_traces() {
     let (files, calls, checks) = replay_dir(&testdata("groupchat_traces"));
-    assert_eq!(files, 15);
+    assert_eq!(files, 20);
     println!("{files} traces, {calls} calls, {checks} BACAP checks");
 }
 

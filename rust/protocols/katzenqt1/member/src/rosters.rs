@@ -162,7 +162,8 @@ impl Rosters {
     }
 
     /// Forget `member`'s key, keeping every place it holds, under `token`. A place named by a
-    /// prefix is `member`'s only if the prefix names no other member known.
+    /// prefix is `member`'s only if the prefix names no other member known. `token` stands in a
+    /// place, never among the keys a prefix can name.
     pub(crate) fn retire(&mut self, member: &Key, token: &Key) {
         let renamed = |k: &Key| {
             if k == member {
@@ -221,7 +222,7 @@ impl Rosters {
                 renamed(k),
             );
         }
-        let keys = self.keys.iter().map(renamed).collect();
+        let keys = self.keys.iter().filter(|k| *k != member).cloned().collect();
         *self = Rosters {
             entries,
             started,

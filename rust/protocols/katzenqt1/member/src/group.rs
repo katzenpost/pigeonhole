@@ -1,7 +1,7 @@
 use indexmap::IndexMap;
 use pigeonhole_katzenqt1_wire::{
-    Ack, IntroAt, IntroRef, Introduction, JoinReply, Member, Number, Roster as WireRoster,
-    RosterEntry, prefix_of,
+    Ack, IntroAt, IntroRef, Introduction, JoinReply, Member, Number, PREFIX_SIZE, ROSTER_MAX,
+    Roster as WireRoster, RosterEntry, membership_hash, prefix_of,
 };
 
 use crate::rosters::{Entry, KnownEntry, Rosters, Started};
@@ -86,7 +86,12 @@ pub struct Group {
     pub joined_through: Option<Key>,
     /// Each IntroducedAt read before the Introduction it names.
     pub awaiting_start: IndexMap<Key, Index>,
-    /// The content delivered, by sender and box, and the epoch it came.
+    /// Whether this member picks the boxes it writes, as it does driven by events. A client that
+    /// writes for itself takes that over with its first call to write, and from then on the member
+    /// writes nothing by itself: its pool would name boxes the client hands out too.
+    pub allocates: bool,
+    /// The content delivered, by sender and box, and the epoch it came, while the policy keeps
+    /// received content only for a time.
     pub received: IndexMap<ReceivedAt, usize>,
 }
 
@@ -112,6 +117,7 @@ impl Group {
             introduced_at: None,
             joined_through: None,
             awaiting_start: IndexMap::new(),
+            allocates: true,
             received: IndexMap::new(),
         }
     }
@@ -346,13 +352,15 @@ impl Group {
         let Some(content) = &m.content else {
             return Vec::new();
         };
-        self.received.insert(
-            ReceivedAt {
-                sender: sender.clone(),
-                index: index.clone(),
-            },
-            self.epoch,
-        );
+        if self.policy.keep_received.is_some() {
+            self.received.insert(
+                ReceivedAt {
+                    sender: sender.clone(),
+                    index: index.clone(),
+                },
+                self.epoch,
+            );
+        }
         vec![Effect::Deliver {
             sender: sender.clone(),
             index: index.clone(),
@@ -419,21 +427,52 @@ impl Group {
             .fold(self.rosters.size(&self.me()), |m, n| m.max(n.index + 1))
     }
 
-    fn owes_control(&self) -> bool {
-        !self.ledger.holding()
-            && (self.introduced_at.is_some()
-                || self
-                    .unnumbered
-                    .iter()
-                    .any(|a| self.rosters.introductions.contains_key(a)))
+    /// Whether our roster has an index left for one more member. Without one an Introduction
+    /// numbers nobody, and its member cannot join.
+    pub fn room(&self) -> bool {
+        self.size() < ROSTER_MAX
     }
 
-    /// Number every member whose Introduction we have read and whose introducer we have numbered,
-    /// from the next index on, and say where we were introduced.
+    /// Our view of the group, as a message we make ourselves says it: ourselves and every member
+    /// we read, but for `leaving`.
+    pub fn membership(&self, leaving: Option<&Key>) -> Vec<u8> {
+        let caps: Vec<&[u8]> = std::iter::once(self.read_cap.as_slice())
+            .chain(self.readers.values().map(|r| r.read_cap.as_slice()))
+            .filter(|c| leaving != Some(&key_of(c)))
+            .collect();
+        membership_hash(&caps).to_vec()
+    }
+
+    fn owes_control(&self) -> bool {
+        !self.ledger.holding() && (self.introduced_at.is_some() || !self.numberable().is_empty())
+    }
+
+    /// Whom a control message would number now: each member whose Introduction we have read,
+    /// while our roster has room, once per key prefix, so that the Numbers field can name each.
+    /// One whose prefix is taken waits for the next control message.
+    fn numberable(&self) -> Vec<(At, Key)> {
+        let mut out: Vec<(At, Key)> = Vec::new();
+        let size = self.size();
+        for a in &self.unnumbered {
+            let Some(new) = self.rosters.introductions.get(a) else {
+                continue;
+            };
+            let p = prefix_of(new);
+            if size + out.len() < ROSTER_MAX
+                && p.len() == PREFIX_SIZE
+                && !out.iter().any(|(_, k)| prefix_of(k) == p)
+            {
+                out.push((a.clone(), new.clone()));
+            }
+        }
+        out
+    }
+
+    /// Number whom `numberable` names, and say where we were introduced.
     fn control(&mut self) -> (Message, Pending) {
-        let mut next = self.size();
         let mut m = Message {
             introduced_at: self.introduced_at.clone(),
+            membership_hash: Some(self.membership(None)),
             ..Message::default()
         };
         let mut p = Pending {
@@ -441,22 +480,18 @@ impl Group {
             ..Pending::default()
         };
         let mut left = self.unnumbered.clone();
-        for a in &self.unnumbered {
-            let Some(new) = self.rosters.introductions.get(a) else {
-                continue;
-            };
+        for (next, (a, new)) in (self.size()..).zip(self.numberable()) {
             m.numbers.push(Number {
                 index: next,
-                prefix: Some(prefix_of(new).to_vec()),
+                prefix: Some(prefix_of(&new).to_vec()),
             });
             p.numbers.push(NumberAt {
                 index: next,
                 at: Some(a.clone()),
             });
-            if let Some(i) = left.iter().position(|x| x == a) {
+            if let Some(i) = left.iter().position(|x| *x == a) {
                 left.remove(i);
             }
-            next += 1;
         }
         self.unnumbered = left;
         self.introduced_at = None;
@@ -488,6 +523,7 @@ impl Group {
                 name: name.into(),
                 read_cap: read_cap.to_vec(),
             }),
+            membership_hash: Some(self.membership(Some(&new))),
             ..Message::default()
         };
         let mut p = Pending {
@@ -495,7 +531,7 @@ impl Group {
             control: true,
             ..Pending::default()
         };
-        if !self.numbered(&new) {
+        if !self.numbered(&new) && self.room() {
             let n = self.size();
             m.numbers = vec![Number {
                 index: n,
@@ -550,6 +586,13 @@ impl Group {
 
     /// The message `token` landed in the box `index` of our stream.
     pub fn written(&mut self, token: usize, index: &Index, plaintext: Option<Payload>) {
+        self.allocates = false;
+        self.landed(token, index, plaintext);
+    }
+
+    /// The message `token` landed in the box `index` of our stream, which we picked or our client
+    /// did.
+    fn landed(&mut self, token: usize, index: &Index, plaintext: Option<Payload>) {
         let Some(p) = self.pending.get(&token).cloned() else {
             return;
         };
@@ -582,7 +625,7 @@ impl Group {
             return Vec::new();
         }
         let index = self.pool.remove(0);
-        self.written(o.token, &index, Some(Payload::Message(o.message.clone())));
+        self.landed(o.token, &index, Some(Payload::Message(o.message.clone())));
         vec![Effect::WriteBox {
             index,
             payload: Payload::Message(o.message),
@@ -608,7 +651,10 @@ impl Group {
     fn flush(&mut self) -> Vec<Effect> {
         let mut es = Vec::new();
         for _ in 0..self.pool.len() {
-            if self.pool.is_empty() || !(self.owes_control() || !self.outbox.is_empty()) {
+            if !self.allocates
+                || self.pool.is_empty()
+                || !(self.owes_control() || !self.outbox.is_empty())
+            {
                 break;
             }
             let (mut m, mut p) = self.next();
@@ -616,7 +662,7 @@ impl Group {
             let o = self.stage(m, p);
             es.extend(self.write(o));
         }
-        if self.pool.len() < 2 && !self.deriving {
+        if self.allocates && self.pool.len() < 2 && !self.deriving {
             self.deriving = true;
             es.push(Effect::DeriveIndexes {
                 stream: self.me(),
@@ -707,6 +753,7 @@ impl Group {
 
     /// Stage the Introduction of the member read by `read_cap`.
     pub fn introduce_now(&mut self, name: &str, read_cap: &[u8]) -> Outgoing {
+        self.allocates = false;
         let (m, p) = self.introduction(name, read_cap);
         self.stage(m, p)
     }
@@ -717,7 +764,8 @@ impl Group {
         };
         let head = self.pool.first().cloned().unwrap_or_default();
         let reply = self.reply(&head);
-        let o = self.introduce_now(&inv.name, &inv.read_cap);
+        let (m, p) = self.introduction(&inv.name, &inv.read_cap);
+        let o = self.stage(m, p);
         let mut es = self.write(o);
         es.push(Effect::SendJoinReply {
             to: inv.read_cap,
@@ -736,6 +784,7 @@ impl Group {
         }
         if self.ledger.induction == Induction::Inducting
             && self.ledger.commit
+            && self.allocates
             && !self.pool.is_empty()
         {
             es.extend(self.commit_induction());
@@ -789,6 +838,9 @@ impl Group {
             Group::everyone_acked(readers, ledger, k)
         });
         let mut es = Vec::new();
+        if self.policy.keep_received.is_none() {
+            self.received.clear();
+        }
         if let Some(keep) = self.policy.keep_received {
             let expired: Vec<ReceivedAt> = self
                 .received
@@ -893,6 +945,7 @@ impl Group {
     /// The messages to send now, in order: a control message if one is owed, then `content`. Each
     /// takes effect when written.
     pub fn compose(&mut self, content: Option<Vec<u8>>) -> Vec<Outgoing> {
+        self.allocates = false;
         let mut owed = Vec::new();
         if self.owes_control() {
             owed.push(self.control());

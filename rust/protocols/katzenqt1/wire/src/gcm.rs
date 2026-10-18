@@ -300,6 +300,14 @@ pub fn unframe(b: &[u8]) -> Chunk {
 /// The hash a control message or an introduction carries in place of the membership hash.
 pub const SENTINEL: [u8; HASH_SIZE] = [0; HASH_SIZE];
 
+/// The sentinel older clients send.
+const OLD_SENTINEL: &[u8; HASH_SIZE] = b"TODOTODOTODOTODOTODOTODOTODOTODO";
+
+/// Whether `h` says no membership hash.
+pub fn is_sentinel(h: &[u8]) -> bool {
+    h == SENTINEL || h == OLD_SENTINEL
+}
+
 /// What a member reads of a message's CBOR, or `None` when it is not a message. As katzenqt's
 /// GcmCodec, a content message's whole CBOR travels as its content.
 pub fn message_from_cbor(cbor: &[u8]) -> Option<Message> {
@@ -317,6 +325,8 @@ pub fn message_from_cbor(cbor: &[u8]) -> Option<Message> {
             .as_deref()
             .and_then(introduced_at_from_bytes),
         acks: acks_from_bytes(g.acks.as_deref().unwrap_or_default()).unwrap_or_default(),
+        membership_hash: (g.is_control() && !is_sentinel(&g.membership_hash))
+            .then(|| g.membership_hash.clone()),
     })
 }
 
@@ -331,14 +341,14 @@ pub fn message_to_gcm(m: &Message) -> Option<Gcm> {
         (Some(c), _) => Gcm::from_bytes(c)?,
         (None, Some(i)) => Gcm {
             version: CURRENT_VERSION,
-            membership_hash: SENTINEL.to_vec(),
+            membership_hash: stamped(m),
             msg_type: MSG_INTRODUCTION,
             introduction: Some(i.clone()),
             ..Gcm::default()
         },
         (None, None) => Gcm {
             version: CURRENT_VERSION,
-            membership_hash: SENTINEL.to_vec(),
+            membership_hash: stamped(m),
             msg_type: MSG_CONTROL,
             ..Gcm::default()
         },
@@ -349,6 +359,12 @@ pub fn message_to_gcm(m: &Message) -> Option<Gcm> {
         introduced_at: m.introduced_at.as_ref().map(introduced_at_to_bytes),
         ..g
     })
+}
+
+fn stamped(m: &Message) -> Vec<u8> {
+    m.membership_hash
+        .clone()
+        .unwrap_or_else(|| SENTINEL.to_vec())
 }
 
 /// The box for a member's `m`.

@@ -82,7 +82,8 @@ pub struct Ack {
 }
 
 /// What a member reads of a message. It carries content or control, never both; `acks` are in
-/// ascending order of roster index.
+/// ascending order of roster index. A message the member makes itself carries the membership
+/// hash it was composed with, so that a rewrite writes the same box; content carries its own.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Message {
     pub content: Option<Vec<u8>>,
@@ -90,6 +91,7 @@ pub struct Message {
     pub numbers: Vec<Number>,
     pub introduced_at: Option<IntroRef>,
     pub acks: Vec<Ack>,
+    pub membership_hash: Option<Vec<u8>>,
 }
 
 /// The first index assigned, then the key prefix of each member, one per consecutive index; a

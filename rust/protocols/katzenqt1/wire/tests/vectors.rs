@@ -31,6 +31,7 @@ fn message_json(m: &Option<Message>) -> Value {
         "numbers": m.numbers.iter().map(|n| json!([num(n.index as u64), n.prefix.as_ref().map(hex::encode)])).collect::<Vec<_>>(),
         "introduced_at": m.introduced_at.as_ref().map(|a| json!({"introducer": num(a.introducer as u64), "index": hex::encode(&a.index)})),
         "acks": m.acks.iter().map(|a| json!([num(a.member as u64), num(a.idx64)])).collect::<Vec<_>>(),
+        "membership_hash": m.membership_hash.as_ref().map(hex::encode),
     })
 }
 
@@ -74,6 +75,9 @@ fn read_message(j: &Value) -> Message {
                 idx64: nat(&p[1]),
             })
             .collect(),
+        membership_hash: j["membership_hash"]
+            .as_str()
+            .map(|s| hex::decode(s).unwrap()),
     }
 }
 
@@ -138,7 +142,7 @@ fn wire_vectors() {
         );
         count += 1;
     }
-    assert_eq!(count, 16 + 4 + 6 + 5);
+    assert_eq!(count, 19 + 6 + 6 + 5);
 }
 
 fn read_acks(j: &Value) -> Vec<Ack> {

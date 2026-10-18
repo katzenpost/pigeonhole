@@ -95,25 +95,11 @@ struct Cx<'a> {
     me: &'a str,
 }
 
-fn member_caps(g: &Group) -> Vec<Vec<u8>> {
-    let mut caps = vec![g.read_cap.clone()];
-    caps.extend(g.readers.values().map(|r| r.read_cap.clone()));
-    caps
-}
-
-/// The box an outgoing message is written as. A message the member makes itself carries our
-/// membership hash, an Introduction the hash before the member it introduces; content carries
-/// the hash it was composed with.
-fn box_of(g: &Group, o: &Outgoing) -> Option<Vec<u8>> {
-    let mut gcm = wire::message_to_gcm(&o.message)?;
-    if o.message.content.is_none() {
-        let mut caps = member_caps(g);
-        if let Some(i) = &o.message.introduction {
-            caps.retain(|c| wire::key_of(c) != wire::key_of(&i.read_cap));
-        }
-        gcm.membership_hash = wire::membership_hash(&caps).to_vec();
-    }
-    Some(wire::frame(&gcm.to_bytes()))
+/// The box an outgoing message is written as. A message the member makes itself carries the
+/// membership hash it stamped when composed, an Introduction the hash before the member it
+/// introduces, so a rewrite writes the same box; content carries the hash it was composed with.
+fn box_of(o: &Outgoing) -> Option<Vec<u8>> {
+    wire::box_of(&o.message)
 }
 
 fn file_text(a: &Attachment) -> String {
@@ -236,9 +222,11 @@ impl Cx<'_> {
     ) {
         let max = self.max;
         for o in outgoing {
-            let Some(g) = &c.group else { continue };
+            if c.group.is_none() {
+                continue;
+            }
             let mine = content.is_some() && o.message.content.as_deref() == content;
-            let mut b = box_of(g, &o);
+            let mut b = box_of(&o);
             if let (Some(bx), Some(p), true) = (&b, payload, mine) {
                 b = wire::put_payload(&bx[1..], p).map(|full| wire::frame(&full));
             }
@@ -1273,7 +1261,7 @@ impl Engine {
                     cx.notice(c, NoticeKind::NotJoined, &[]);
                     return;
                 };
-                let content = wire::text_content(&wire::membership_hash(&member_caps(g)), &text);
+                let content = wire::text_content(&g.membership(None), &text);
                 let me_key = g.me();
                 let line = cx.say(
                     c,
@@ -1302,7 +1290,7 @@ impl Engine {
                     filetype: wire::filetype_of(&safe).into(),
                     basename: safe.clone(),
                 };
-                let content = wire::file_content(&wire::membership_hash(&member_caps(g)), &f);
+                let content = wire::file_content(&g.membership(None), &f);
                 let me_key = g.me();
                 let a = Attachment {
                     name: safe.clone(),

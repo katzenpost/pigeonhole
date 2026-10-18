@@ -42,7 +42,8 @@ pub struct Reader {
     pub kept: Vec<Kept>,
     pub lost: Option<Lost>,
     pub mode: Mode,
-    /// The Idx64 of each acknowledged box a scan has already looked for.
+    /// The Idx64 of each acknowledged box ahead that a scan has already looked for, while it is
+    /// still heard: no more than there are members.
     pub tried: Vec<u64>,
 }
 
@@ -78,18 +79,23 @@ impl Reader {
         vec![self.read_box(&self.next, false)]
     }
 
-    /// Acknowledged boxes a scan has not looked for yet.
+    /// Acknowledged boxes ahead of here a scan has not looked for yet, each once. A walk only goes
+    /// forward, so one behind is never found.
     fn ahead(&self, heard: &[u64]) -> Vec<u64> {
         let here = counter(&self.next);
-        heard
-            .iter()
-            .copied()
-            .filter(|h| *h != here && !self.tried.contains(h))
-            .collect()
+        let mut out = Vec::new();
+        for &h in heard {
+            if h > here && !self.tried.contains(&h) && !out.contains(&h) {
+                out.push(h);
+            }
+        }
+        out
     }
 
     /// Recheck what was kept, then look for acknowledged boxes ahead, or probe forward from here.
     pub(crate) fn scan(&mut self, heard: &[u64], window: usize) -> Vec<Effect> {
+        let here = counter(&self.next);
+        self.tried.retain(|t| *t > here && heard.contains(t));
         let ahead = self.ahead(heard);
         let mut es: Vec<Effect> = self
             .kept

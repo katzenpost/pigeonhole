@@ -50,6 +50,7 @@ pub fn message(m: &Message) -> Value {
         "numbers": m.numbers.iter().map(|x| json!([nu(x.index), oh(&x.prefix)])).collect::<Vec<_>>(),
         "introduced_at": m.introduced_at.as_ref().map(|r| json!([nu(r.introducer), h(&r.index)])),
         "acks": m.acks.iter().map(|a| json!([nu(a.member), n(a.idx64)])).collect::<Vec<_>>(),
+        "membership_hash": oh(&m.membership_hash),
     })
 }
 
@@ -196,6 +197,7 @@ pub fn group(g: &Group) -> Value {
         "introduced_at": g.introduced_at.as_ref().map(|r| json!({"introducer": nu(r.introducer), "index": h(&r.index)})),
         "joined_through": oh(&g.joined_through),
         "awaiting_start": pairs(&g.awaiting_start, key, |i| h(i)),
+        "allocates": g.allocates,
         "received": pairs(&g.received, |r| json!([h(&r.sender), h(&r.index)]), |e| nu(*e)),
     })
 }
@@ -364,6 +366,7 @@ pub fn read_message(j: &Value) -> R<Message> {
                 })
             })
             .collect::<R<_>>()?,
+        membership_hash: ob(j.get("membership_hash").unwrap_or(&Value::Null))?,
     })
 }
 
@@ -886,7 +889,11 @@ pub fn read_group(j: &Value) -> R<Group> {
         Ok(())
     })?;
     let bf = get(sb, "backfilled")?;
-    sent.backfilled = if bf.as_i64() == Some(-1) { None } else { Some(us(bf)?) };
+    sent.backfilled = if bf.as_i64() == Some(-1) {
+        None
+    } else {
+        Some(us(bf)?)
+    };
     let l = get(j, "ledger")?;
     let mut heard = IndexMap::new();
     each_pair(get(l, "heard")?, |k, v| {
@@ -1000,6 +1007,7 @@ pub fn read_group(j: &Value) -> R<Group> {
         },
         joined_through: ob(get(j, "joined_through")?)?,
         awaiting_start: index_pairs(get(j, "awaiting_start")?)?,
+        allocates: j.get("allocates").and_then(Value::as_bool).unwrap_or(true),
         received,
     })
 }
