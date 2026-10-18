@@ -16,16 +16,28 @@ func TestLive(t *testing.T) {
 	if daemon == "" {
 		t.Skip("DAEMON not set")
 	}
-	dir := t.TempDir()
-	bin := filepath.Join(dir, "bin")
-	os.Mkdir(bin, 0o700)
-	build(t, bin)
-	long := 30 * time.Minute
-	run := func(name string) *proc {
-		return startWith(t, bin, "-daemon", daemon, "-state", filepath.Join(dir, name), "-name", name,
-			"-log", filepath.Join(dir, name+".log"), "-wait", long.String())
+	goBin := filepath.Join(t.TempDir(), "bin")
+	os.Mkdir(goBin, 0o700)
+	build(t, goBin)
+	for _, p := range clients(t, goBin) {
+		if pairs := os.Getenv("LIVE_PAIRS"); pairs != "" && !strings.Contains(pairs, label(p[0])+"-"+label(p[1])) {
+			continue
+		}
+		t.Run(label(p[0])+"-"+label(p[1]), func(t *testing.T) { live(t, daemon, p[0], p[1]) })
 	}
-	alice, bob := run("alice"), run("bob")
+}
+
+func live(t *testing.T, daemon, aliceBin, bobBin string) {
+	dir := t.TempDir()
+	long := 30 * time.Minute
+	run := func(bin, name string) *proc {
+		args := []string{"-daemon", daemon, "-state", filepath.Join(dir, name), "-name", name, "-wait", long.String()}
+		if label(bin) == "go" {
+			args = append(args, "-log", filepath.Join(dir, name+".log"))
+		}
+		return startWith(t, bin, args...)
+	}
+	alice, bob := run(aliceBin, "alice"), run(bobBin, "bob")
 	defer alice.kill()
 	defer bob.kill()
 	step := func(what string) { t.Logf("%s %s", time.Now().Format("15:04:05"), what) }

@@ -347,13 +347,13 @@ impl Client {
                 match r {
                     Request::Query(q) => q(&eng.state),
                     Request::Step(input, check, done) => {
-                        if let Some(check) = check {
-                            if let Err(e) = check(&eng.state) {
-                                if let Some(d) = done {
-                                    let _ = d.send(Err(e));
-                                }
-                                continue;
+                        if let Some(check) = check
+                            && let Err(e) = check(&eng.state)
+                        {
+                            if let Some(d) = done {
+                                let _ = d.send(Err(e));
                             }
+                            continue;
                         }
                         let res = eng.step(now(), input);
                         if let Err(e) = st.commit(&eng.state, &res) {

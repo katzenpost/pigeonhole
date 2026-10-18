@@ -18,9 +18,12 @@ pub struct BoxName {
     pub idx64: u64,
 }
 
+/// A box, by its stream's key and its index, with the epoch it was stored in and what it holds.
+type Boxes = HashMap<(Vec<u8>, Vec<u8>), (u64, Vec<u8>)>;
+
 #[derive(Default)]
 pub struct State {
-    boxes: HashMap<(Vec<u8>, Vec<u8>), (u64, Vec<u8>)>,
+    boxes: Boxes,
     pub epoch: u64,
     pub max_plaintext: usize,
     pub fail_writes: usize,
@@ -93,18 +96,19 @@ impl World {
         s.writes += 1;
         let k = (read_cap[..32].to_vec(), index.to_vec());
         let epoch = s.epoch;
-        if let Some((e, old)) = s.boxes.get(&k) {
-            if e + 1 >= epoch && !plaintext.is_empty() {
-                if old == plaintext {
-                    return Ok(());
-                }
-                let idx64 = u64::from_le_bytes(index[..8].try_into().unwrap());
-                s.refused.push(BoxName {
-                    stream: read_cap[..32].to_vec(),
-                    idx64,
-                });
-                return Err(Error::BoxAlreadyExists);
+        if let Some((e, old)) = s.boxes.get(&k)
+            && e + 1 >= epoch
+            && !plaintext.is_empty()
+        {
+            if old == plaintext {
+                return Ok(());
             }
+            let idx64 = u64::from_le_bytes(index[..8].try_into().unwrap());
+            s.refused.push(BoxName {
+                stream: read_cap[..32].to_vec(),
+                idx64,
+            });
+            return Err(Error::BoxAlreadyExists);
         }
         s.boxes.insert(k, (epoch, plaintext.to_vec()));
         Ok(())

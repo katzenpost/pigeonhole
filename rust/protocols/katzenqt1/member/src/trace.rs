@@ -886,11 +886,7 @@ pub fn read_group(j: &Value) -> R<Group> {
         Ok(())
     })?;
     let bf = get(sb, "backfilled")?;
-    sent.backfilled = if bf.to_string() == "-1" {
-        None
-    } else {
-        Some(us(bf)?)
-    };
+    sent.backfilled = if bf.as_i64() == Some(-1) { None } else { Some(us(bf)?) };
     let l = get(j, "ledger")?;
     let mut heard = IndexMap::new();
     each_pair(get(l, "heard")?, |k, v| {

@@ -710,10 +710,10 @@ impl Cx<'_> {
     }
 
     fn cancel_held(&mut self, c: &mut Chat) {
-        if let Some(g) = &mut c.group {
-            if g.ledger.induction == pigeonhole_katzenqt1_member::Induction::Inducting {
-                g.cancel_induction();
-            }
+        if let Some(g) = &mut c.group
+            && g.ledger.induction == pigeonhole_katzenqt1_member::Induction::Inducting
+        {
+            g.cancel_induction();
         }
     }
 
@@ -732,10 +732,10 @@ impl Cx<'_> {
         // Count the boxes written in a row from the first not yet counted.
         while let Some(i) = landed.iter().position(|l| l.0 == u.sent) {
             let (_, after) = landed.remove(i);
-            if let Some(a) = self.flight.ahead.get_mut(&key) {
-                if !a.is_empty() {
-                    a.remove(0);
-                }
+            if let Some(a) = self.flight.ahead.get_mut(&key)
+                && !a.is_empty()
+            {
+                a.remove(0);
             }
             u.sent += 1;
             u.next = after;

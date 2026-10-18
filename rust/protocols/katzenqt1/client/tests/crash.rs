@@ -171,7 +171,7 @@ fn restart_mid_induction() {
                 "crash after {crash_at} (lost {lost})"
             );
             assert!(w.sim.state().refused.is_empty());
-            if w.restarts.get(&0).is_none() {
+            if !w.restarts.contains_key(&0) {
                 println!(
                     "lost {lost}: restarted after each of {} actions",
                     crash_at - 1

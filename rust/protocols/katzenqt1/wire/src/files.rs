@@ -204,7 +204,10 @@ pub fn substream_box(blob: &[u8], max: usize, i: usize) -> Vec<u8> {
 
 /// The `I` box naming a substream of `total` boxes.
 pub fn indirection(total: usize, read_cap: &[u8]) -> Vec<u8> {
-    [&[b'I'][..], &(total as u32).to_be_bytes(), read_cap].concat()
+    let mut out = b"I".to_vec();
+    out.extend((total as u32).to_be_bytes());
+    out.extend_from_slice(read_cap);
+    out
 }
 
 /// The message a substream's boxes hold, once its `F` box is among them.

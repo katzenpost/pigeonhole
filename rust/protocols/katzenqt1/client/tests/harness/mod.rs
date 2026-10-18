@@ -197,10 +197,8 @@ impl World {
         };
         let o = self.rt.block_on(x.perform(a, |_| async {}));
         if let Some(lost) = crash {
-            if !lost {
-                if let Outcome::Done(input) = o {
-                    self.feed(who, input);
-                }
+            if !lost && let Outcome::Done(input) = o {
+                self.feed(who, input);
             }
             self.restart(who);
             return true;

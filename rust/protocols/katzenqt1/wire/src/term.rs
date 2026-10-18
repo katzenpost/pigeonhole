@@ -198,16 +198,17 @@ fn read_term(l: &[u8], depth: usize) -> Option<(Term, &[u8])> {
             }
         }
         6 => {
-            if (n == 2 || n == 3) && ai < 24 {
-                if let Some((b, after)) = read_string(2, rest) {
-                    return Some((
-                        Term::Int {
-                            negative: n == 3,
-                            value: bignum(b),
-                        },
-                        after,
-                    ));
-                }
+            if (n == 2 || n == 3)
+                && ai < 24
+                && let Some((b, after)) = read_string(2, rest)
+            {
+                return Some((
+                    Term::Int {
+                        negative: n == 3,
+                        value: bignum(b),
+                    },
+                    after,
+                ));
             }
             let (_, after) = read_term(rest, depth - 1)?;
             Some((Term::Tag, after))

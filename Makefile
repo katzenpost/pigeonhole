@@ -60,3 +60,20 @@ e2e:
 interop:
 	scripts/interop-katzenqt.sh host $(DAEMON) $(KATZENQT)
 	scripts/interop-katzenqt.sh guest $(DAEMON) $(KATZENQT)
+
+CARGO ?= $(HOME)/.cargo/bin/cargo
+
+.PHONY: rust-test rust-conformance
+
+rust-test:
+	mkdir -p $(TMPDIR)
+	cd rust && $(CARGO) test --release
+
+# The Rust member against the same traces, and its own random runs against katzenqt and Lean.
+rust-conformance: replay-katzenqt
+	cd rust && TRACES=$(OUT)/katzenqt $(CARGO) test --release -p pigeonhole-katzenqt1-member --test replay
+	rm -rf $(OUT)/rust && mkdir -p $(OUT)/rust
+	cd rust && RANDOM_RUNS=$(RUNS) RANDOM_OUT=$(OUT)/rust $(CARGO) test --release -p pigeonhole-katzenqt1-member --test sim random_scripts
+	cd $(KATZENQT) && PYTHONPATH=src $(PYTHON) $(CURDIR)/scripts/katzenqt_diff.py $(OUT)/rust
+	cd $(CRYPTLIB) && lake exe Cryptlib.Protocols.GroupComm.GroupChatKatzenqt1.replay $(OUT)/rust
+	TRACES=$(OUT)/rust go test -count=1 -run More ./protocols/katzenqt1/member/tracejson/
