@@ -177,7 +177,8 @@ func (r *Rosters) number(owner Key, index int, e Entry) {
 }
 
 // retire forgets member's key, keeping every place it holds, under token. A place named by a
-// prefix is member's only if the prefix names no other member known.
+// prefix is member's only if the prefix names no other member known. token stands in a place,
+// never among the keys a prefix can name.
 func (r *Rosters) retire(member, token Key) {
 	renamed := func(k Key) Key {
 		if k == member {
@@ -214,9 +215,6 @@ func (r *Rosters) retire(member, token Key) {
 	for a, k := range r.Introductions.All {
 		intros.Set(At{renamed(a.Introducer), a.Index}, renamed(k))
 	}
-	keys := make([]Key, len(r.Keys))
-	for i, k := range r.Keys {
-		keys[i] = renamed(k)
-	}
+	keys := slices.DeleteFunc(slices.Clone(r.Keys), func(k Key) bool { return k == member })
 	*r = Rosters{Entries: entries, Started: started, Introductions: intros, Keys: keys}
 }

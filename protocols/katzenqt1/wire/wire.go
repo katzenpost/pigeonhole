@@ -59,13 +59,16 @@ type Ack struct {
 }
 
 // Message is what a member reads of a message. It carries content or control, never both; Acks
-// are in ascending order of roster index.
+// are in ascending order of roster index. A message the member makes itself carries the
+// membership hash it was composed with, so that a rewrite writes the same box; content carries
+// its own.
 type Message struct {
-	Content      []byte
-	Introduction *Introduction
-	Numbers      []Number
-	IntroducedAt *IntroRef
-	Acks         []Ack
+	Content        []byte
+	Introduction   *Introduction
+	Numbers        []Number
+	IntroducedAt   *IntroRef
+	Acks           []Ack
+	MembershipHash []byte
 }
 
 func (m *Message) Equal(o *Message) bool {
@@ -102,7 +105,8 @@ func (m *Message) Equal(o *Message) bool {
 			return false
 		}
 	}
-	return true
+	return (m.MembershipHash == nil) == (o.MembershipHash == nil) &&
+		bytes.Equal(m.MembershipHash, o.MembershipHash)
 }
 
 // EncodeNumbers writes the first index assigned, then the key prefix of each member, one per

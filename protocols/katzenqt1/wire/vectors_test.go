@@ -82,7 +82,8 @@ func messageJSON(m *Message) any {
 		at = map[string]any{"introducer": numOf(uint64(m.IntroducedAt.Introducer)), "index": hex.EncodeToString(m.IntroducedAt.Index)}
 	}
 	return map[string]any{"content": hexOrNull(m.Content, m.Content != nil), "introduction": intro,
-		"numbers": numbers, "introduced_at": at, "acks": acks}
+		"numbers": numbers, "introduced_at": at, "acks": acks,
+		"membership_hash": hexOrNull(m.MembershipHash, m.MembershipHash != nil)}
 }
 
 func joinReplyJSON(r *JoinReply) any {
@@ -150,6 +151,9 @@ func readMessage(t *testing.T, v any) *Message {
 			t.Fatal(err)
 		}
 		m.Acks = append(m.Acks, Ack{Member: intOf(t, p[0]), Idx64: idx})
+	}
+	if h := j["membership_hash"]; h != nil {
+		m.MembershipHash = unhex(t, h)
 	}
 	return m
 }
@@ -224,7 +228,7 @@ func TestWireVectors(t *testing.T) {
 		}
 		count++
 	}
-	if count != 16+4+6+5 {
+	if count != 19+6+6+5 {
 		t.Errorf("%d vectors", count)
 	}
 }

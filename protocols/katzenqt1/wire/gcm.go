@@ -312,6 +312,12 @@ func Unframe(box []byte) Chunk {
 // hash.
 var Sentinel = make([]byte, HashSize)
 
+// oldSentinel is the one older clients send.
+var oldSentinel = []byte("TODOTODOTODOTODOTODOTODOTODOTODO")
+
+// IsSentinel is whether h says no membership hash.
+func IsSentinel(h []byte) bool { return bytes.Equal(h, Sentinel) || bytes.Equal(h, oldSentinel) }
+
 func (g *Gcm) isControl() bool { return g.MsgType == MsgControl || g.MsgType == MsgIntroduction }
 
 // ToMessage is what a member reads of a message's CBOR, or nil when it is not a message. As
@@ -330,6 +336,9 @@ func ToMessage(cbor []byte) *Message {
 	}
 	if g.MsgType == MsgIntroduction {
 		m.Introduction = g.Introduction
+	}
+	if g.isControl() && !IsSentinel(g.MembershipHash) {
+		m.MembershipHash = bytes.Clone(g.MembershipHash)
 	}
 	m.Acks, _ = DecodeAcks(g.Acks)
 	return m
@@ -352,9 +361,9 @@ func OfMessage(m *Message) *Gcm {
 			return nil
 		}
 	case m.Introduction != nil:
-		g = &Gcm{Version: CurrentVersion, MembershipHash: Sentinel, MsgType: MsgIntroduction, Introduction: m.Introduction}
+		g = &Gcm{Version: CurrentVersion, MembershipHash: stamped(m), MsgType: MsgIntroduction, Introduction: m.Introduction}
 	default:
-		g = &Gcm{Version: CurrentVersion, MembershipHash: Sentinel, MsgType: MsgControl}
+		g = &Gcm{Version: CurrentVersion, MembershipHash: stamped(m), MsgType: MsgControl}
 	}
 	g.Acks = nonEmpty(EncodeAcks(m.Acks))
 	g.Numbers = nonEmpty(EncodeNumbers(m.Numbers))
@@ -363,6 +372,13 @@ func OfMessage(m *Message) *Gcm {
 		g.IntroducedAt = EncodeIntroducedAt(*m.IntroducedAt)
 	}
 	return g
+}
+
+func stamped(m *Message) []byte {
+	if m.MembershipHash != nil {
+		return m.MembershipHash
+	}
+	return Sentinel
 }
 
 // Box is the box for a member's m.

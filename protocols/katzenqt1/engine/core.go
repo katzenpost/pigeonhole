@@ -88,31 +88,10 @@ func (e *Engine) notice(c *Chat, kind NoticeKind, args ...string) {
 
 // Writing
 
-func memberCaps(g *member.Group) [][]byte {
-	caps := [][]byte{g.ReadCap}
-	for _, r := range g.Readers.Values() {
-		caps = append(caps, r.ReadCap)
-	}
-	return caps
-}
-
 // boxOf is the box an outgoing message is written as. A message the member makes itself carries
-// our membership hash, an Introduction the hash before the member it introduces; content carries
-// the hash it was composed with.
-func boxOf(g *member.Group, o member.Outgoing) []byte {
-	gcm := wire.OfMessage(o.Message)
-	if gcm == nil {
-		return nil
-	}
-	if o.Message.Content == nil {
-		caps := memberCaps(g)
-		if i := o.Message.Introduction; i != nil {
-			caps = slices.DeleteFunc(caps, func(c []byte) bool { return bytes.Equal(wire.KeyOf(c), wire.KeyOf(i.ReadCap)) })
-		}
-		gcm.MembershipHash = wire.MembershipHash(caps)
-	}
-	return wire.Frame(gcm.Encode())
-}
+// the membership hash it stamped when composed, an Introduction the hash before the member it
+// introduces, so a rewrite writes the same box; content carries the hash it was composed with.
+func boxOf(o member.Outgoing) []byte { return wire.Box(o.Message) }
 
 func spoolFile(c *Chat, job int, now int64) string {
 	return fmt.Sprintf("spool/%s-%d-%d.cbor", slug(c.Name), now, job)
@@ -129,7 +108,7 @@ func (e *Engine) enqueue(c *Chat, outgoing []member.Outgoing, content []byte, li
 			continue
 		}
 		mine := content != nil && o.Message.Content != nil && bytes.Equal(o.Message.Content, content)
-		box := boxOf(g, o)
+		box := boxOf(o)
 		if box != nil && payload != nil && mine {
 			if full, ok := wire.PutPayload(box[1:], payload); ok {
 				box = wire.Frame(full)
@@ -643,7 +622,7 @@ func (e *Engine) handle(in Input) {
 			e.notice(c, NotJoined)
 			return
 		}
-		content := wire.TextContent(wire.MembershipHash(memberCaps(g)), in.Text)
+		content := wire.TextContent(g.Membership(nil), in.Text)
 		id := e.say(c, Line{Sender: g.Me(), Text: in.Text, Status: Pending})
 		e.enqueue(c, g.Compose(content), content, &id, nil)
 	case SendFile:
@@ -662,7 +641,7 @@ func (e *Engine) handle(in Input) {
 		}
 		safe := wire.SafeName(in.Name)
 		f := wire.FileUpload{Payload: []byte{}, Filetype: wire.FiletypeOf(safe), Basename: safe}
-		content := wire.FileContent(wire.MembershipHash(memberCaps(g)), f)
+		content := wire.FileContent(g.Membership(nil), f)
 		a := &Attachment{Name: safe, Filetype: f.Filetype, Size: len(in.Bytes), File: attachmentFile(c, c.NextID, e.now, safe)}
 		e.keep(a.File, in.Bytes)
 		id := e.say(c, Line{Sender: g.Me(), Text: fileText(a), Status: Pending, Attachment: a})

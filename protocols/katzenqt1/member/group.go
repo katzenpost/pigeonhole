@@ -68,7 +68,12 @@ type Group struct {
 	JoinedThrough *Key
 	// AwaitingStart is each IntroducedAt read before the Introduction it names.
 	AwaitingStart ordmap.Map[Key, Index]
-	// Received is the content delivered, by sender and box, and the epoch it came.
+	// Allocates is whether this member picks the boxes it writes, as it does driven by events. A
+	// client that writes for itself takes that over with its first call to write, and from then
+	// on the member writes nothing by itself: its pool would name boxes the client hands out too.
+	Allocates bool
+	// Received is the content delivered, by sender and box, and the epoch it came, while the
+	// policy keeps received content only for a time.
 	Received ordmap.Map[ReceivedAt, int]
 }
 
@@ -80,7 +85,7 @@ type ReceivedAt struct {
 
 func newGroup(readCap []byte, policy Retention, recheck int) *Group {
 	return &Group{ReadCap: readCap, Policy: policy, Recheck: recheck,
-		Tip: startOf(readCap), Pool: []Index{startOf(readCap)}}
+		Tip: startOf(readCap), Pool: []Index{startOf(readCap)}, Allocates: true}
 }
 
 // Me is our own key.
@@ -297,7 +302,9 @@ func (g *Group) deliver(sender Key, index Index, m *wire.Message) []Effect {
 	if m.Content == nil {
 		return nil
 	}
-	g.Received.Set(ReceivedAt{sender, index}, g.Epoch)
+	if g.Policy.KeepReceived != nil {
+		g.Received.Set(ReceivedAt{sender, index}, g.Epoch)
+	}
 	return []Effect{Deliver{Sender: sender, Index: index, Content: m.Content}}
 }
 
@@ -350,35 +357,69 @@ func (g *Group) size() int {
 	return s
 }
 
-func (g *Group) owesControl() bool {
-	if g.Ledger.holding() {
-		return false
-	}
-	if g.IntroducedAt != nil {
-		return true
-	}
-	for _, a := range g.Unnumbered {
-		if g.Rosters.Introductions.Has(a) {
-			return true
+// Room is whether our roster has an index left for one more member. Without one an Introduction
+// numbers nobody, and its member cannot join.
+func (g *Group) Room() bool { return g.size() < wire.RosterMax }
+
+// Membership is our view of the group, as a message we make ourselves says it: ourselves and
+// every member we read, but for leaving.
+func (g *Group) Membership(leaving *Key) []byte {
+	var caps [][]byte
+	for _, c := range append([][]byte{g.ReadCap}, g.readCaps()...) {
+		if leaving == nil || keyOf(c) != *leaving {
+			caps = append(caps, c)
 		}
 	}
-	return false
+	return wire.MembershipHash(caps)
 }
 
-// control numbers every member whose Introduction we have read and whose introducer we have
-// numbered, from the next index on, and says where we were introduced.
-func (g *Group) control() (*wire.Message, *Pending) {
-	next := g.size()
-	m := &wire.Message{IntroducedAt: g.IntroducedAt}
-	p := &Pending{Control: true}
-	left := slices.Clone(g.Unnumbered)
+func (g *Group) readCaps() [][]byte {
+	var caps [][]byte
+	for _, r := range g.Readers.Values() {
+		caps = append(caps, r.ReadCap)
+	}
+	return caps
+}
+
+func (g *Group) owesControl() bool {
+	return !g.Ledger.holding() && (g.IntroducedAt != nil || len(g.numberable()) > 0)
+}
+
+type numberable struct {
+	at  At
+	new Key
+}
+
+// numberable is whom a control message would number now: each member whose Introduction we have
+// read, while our roster has room, once per key prefix, so that the Numbers field can name each.
+// One whose prefix is taken waits for the next control message.
+func (g *Group) numberable() []numberable {
+	var out []numberable
+	prefixes := map[string]bool{}
+	size := g.size()
 	for _, a := range g.Unnumbered {
 		new, ok := g.Rosters.Introductions.Get(a)
-		if !ok {
+		if !ok || size+len(out) >= wire.RosterMax {
 			continue
 		}
+		p := prefixOf(new)
+		if len(p) == wire.PrefixSize && !prefixes[string(p)] {
+			prefixes[string(p)] = true
+			out = append(out, numberable{a, new})
+		}
+	}
+	return out
+}
+
+// control numbers whom numberable names, and says where we were introduced.
+func (g *Group) control() (*wire.Message, *Pending) {
+	next := g.size()
+	m := &wire.Message{IntroducedAt: g.IntroducedAt, MembershipHash: g.Membership(nil)}
+	p := &Pending{Control: true}
+	left := slices.Clone(g.Unnumbered)
+	for _, n := range g.numberable() {
+		a, new := n.at, n.new
 		m.Numbers = append(m.Numbers, wire.Number{Index: next, Prefix: prefixOf(new)})
-		a := a
 		p.Numbers = append(p.Numbers, NumberAt{Index: next, At: &a})
 		if i := slices.Index(left, a); i >= 0 {
 			left = slices.Delete(left, i, i+1)
@@ -407,9 +448,10 @@ func (g *Group) hold() {
 // is numbered already, and what it does once written.
 func (g *Group) introductionOf(name string, readCap []byte) (*wire.Message, *Pending) {
 	new := keyOf(readCap)
-	m := &wire.Message{Introduction: &wire.Introduction{Name: name, ReadCap: readCap}}
+	m := &wire.Message{Introduction: &wire.Introduction{Name: name, ReadCap: readCap},
+		MembershipHash: g.Membership(&new)}
 	p := &Pending{Introduced: &new, Control: true}
-	if !g.numbered(new) {
+	if !g.numbered(new) && g.Room() {
 		n := g.size()
 		m.Numbers = []wire.Number{{Index: n}}
 		p.Numbers = []NumberAt{{Index: n}}
@@ -457,6 +499,13 @@ func (g *Group) stage(m *wire.Message, p *Pending) Outgoing {
 
 // Written says the message token landed in the box index of our stream.
 func (g *Group) Written(token int, index Index, plaintext *Payload) {
+	g.Allocates = false
+	g.landed(token, index, plaintext)
+}
+
+// landed records the message token in the box index of our stream, which we picked or our client
+// did.
+func (g *Group) landed(token int, index Index, plaintext *Payload) {
 	p, ok := g.Pending.Get(token)
 	if !ok {
 		return
@@ -487,7 +536,7 @@ func (g *Group) write(o Outgoing) []Effect {
 	}
 	index := g.Pool[0]
 	g.Pool = g.Pool[1:]
-	g.Written(o.Token, index, &Payload{Message: o.Message})
+	g.landed(o.Token, index, &Payload{Message: o.Message})
 	return []Effect{WriteBox{Index: index, Payload: Payload{Message: o.Message}}}
 }
 
@@ -508,14 +557,14 @@ func (g *Group) next() (*wire.Message, *Pending) {
 func (g *Group) flush() []Effect {
 	var es []Effect
 	for n := len(g.Pool); n > 0; n-- {
-		if len(g.Pool) == 0 || !(g.owesControl() || len(g.Outbox) > 0) {
+		if !g.Allocates || len(g.Pool) == 0 || !(g.owesControl() || len(g.Outbox) > 0) {
 			break
 		}
 		m, p := g.next()
 		g.withAcks(m, p)
 		es = append(es, g.write(g.stage(m, p))...)
 	}
-	if len(g.Pool) < 2 && !g.Deriving {
+	if g.Allocates && len(g.Pool) < 2 && !g.Deriving {
 		g.Deriving = true
 		es = append(es, DeriveIndexes{Stream: g.Me(), Start: g.Tip, Count: PoolSize})
 	}
@@ -603,6 +652,7 @@ func (g *Group) Reply(ownStart Index) *wire.JoinReply {
 
 // IntroduceNow stages the Introduction of the member read by readCap.
 func (g *Group) IntroduceNow(name string, readCap []byte) Outgoing {
+	g.Allocates = false
 	return g.stage(g.introduction(name, readCap))
 }
 
@@ -616,7 +666,7 @@ func (g *Group) commitInduction() []Effect {
 		head = g.Pool[0]
 	}
 	reply := g.Reply(head)
-	es := g.write(g.IntroduceNow(inv.Name, inv.ReadCap))
+	es := g.write(g.stage(g.introduction(inv.Name, inv.ReadCap)))
 	es = append(es, SendJoinReply{To: inv.ReadCap, Reply: reply})
 	return append(es, g.flush()...)
 }
@@ -628,7 +678,7 @@ func (g *Group) progress() []Effect {
 	if g.Ledger.Induction == CatchingUp && g.settled() {
 		g.hold()
 	}
-	if g.Ledger.Induction == Inducting && g.Ledger.Commit && len(g.Pool) > 0 {
+	if g.Ledger.Induction == Inducting && g.Ledger.Commit && g.Allocates && len(g.Pool) > 0 {
 		es = append(es, g.commitInduction()...)
 	}
 	return es
@@ -690,6 +740,9 @@ func (g *Group) onEpoch(epoch int) []Effect {
 	g.Epoch = epoch
 	g.Sent.retain(epoch, g.Policy, g.everyoneAcked)
 	var es []Effect
+	if g.Policy.KeepReceived == nil {
+		g.Received = ordmap.Map[ReceivedAt, int]{}
+	}
 	if keep := g.Policy.KeepReceived; keep != nil {
 		expired := map[ReceivedAt]bool{}
 		for k, at := range g.Received.All {
@@ -767,6 +820,7 @@ func (g *Group) Observe(stream Key, index Index, m *wire.Message, next Index) []
 // Compose returns the messages to send now, in order: a control message if one is owed, then
 // content. Each takes effect when Written.
 func (g *Group) Compose(content []byte) []Outgoing {
+	g.Allocates = false
 	type staged struct {
 		m *wire.Message
 		p *Pending

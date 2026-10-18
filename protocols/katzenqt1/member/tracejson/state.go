@@ -160,6 +160,7 @@ func readGroup(j any) *member.Group {
 		Epoch: natural(field(j, "epoch")), Tip: index(field(j, "tip")), Deriving: boolean(field(j, "deriving")),
 		Tokens: natural(field(j, "tokens")), JoinedThrough: optKey(field(j, "joined_through")),
 		AwaitingStart: indexPairs(field(j, "awaiting_start")),
+		Allocates:     j.(map[string]any)["allocates"] == nil || boolean(field(j, "allocates")),
 	}
 	eachPair(field(j, "readers"), func(k, v any) { g.Readers.Set(key(k), readReader(v)) })
 	for _, i := range items(field(j, "pool")) {

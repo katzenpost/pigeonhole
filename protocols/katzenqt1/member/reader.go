@@ -45,7 +45,8 @@ type Reader struct {
 	Kept []Kept
 	Lost *Lost
 	Mode Mode
-	// Tried is the Idx64 of each acknowledged box a scan has already looked for.
+	// Tried is the Idx64 of each acknowledged box ahead that a scan has already looked for, while
+	// it is still heard: no more than there are members.
 	Tried []uint64
 }
 
@@ -61,16 +62,24 @@ func (r *Reader) read() []Effect {
 	return []Effect{r.readBox(r.Next, false)}
 }
 
-// ahead is the acknowledged boxes a scan has not looked for yet.
+// ahead is the acknowledged boxes ahead of here a scan has not looked for yet, each once. A walk
+// only goes forward, so one behind is never found.
 func (r *Reader) ahead(heard []uint64) []uint64 {
 	var out []uint64
 	here := counter(r.Next)
 	for _, h := range heard {
-		if h != here && !slices.Contains(r.Tried, h) {
+		if h > here && !slices.Contains(r.Tried, h) && !slices.Contains(out, h) {
 			out = append(out, h)
 		}
 	}
 	return out
+}
+
+// prune keeps what a scan still needs to remember having looked for: boxes ahead that are still
+// heard.
+func (r *Reader) prune(heard []uint64) {
+	here := counter(r.Next)
+	r.Tried = slices.DeleteFunc(r.Tried, func(t uint64) bool { return t <= here || !slices.Contains(heard, t) })
 }
 
 func (r *Reader) rechecks() []Effect {
@@ -84,6 +93,7 @@ func (r *Reader) rechecks() []Effect {
 // scan rechecks what was kept, then looks for acknowledged boxes ahead, or probes forward from
 // here.
 func (r *Reader) scan(heard []uint64, window int) []Effect {
+	r.prune(heard)
 	ahead := r.ahead(heard)
 	es := r.rechecks()
 	r.Mode = Scanning

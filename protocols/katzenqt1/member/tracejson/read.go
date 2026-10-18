@@ -139,6 +139,7 @@ func readMessage(j any) *wire.Message {
 		p := tuple(a, 2)
 		m.Acks = append(m.Acks, wire.Ack{Member: natural(p[0]), Idx64: num(p[1])})
 	}
+	m.MembershipHash = optBytes(field(j, "membership_hash"))
 	return m
 }
 

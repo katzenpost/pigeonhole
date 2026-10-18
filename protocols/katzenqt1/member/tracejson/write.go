@@ -25,6 +25,13 @@ func optHex[T ~string](p *T) any {
 	return Hex(*p)
 }
 
+func hexOrNil(b []byte) any {
+	if b == nil {
+		return nil
+	}
+	return Hex(b)
+}
+
 func Nat[T ~int | ~uint64](n T) any {
 	if n < 0 {
 		return json.Number(strconv.FormatInt(int64(n), 10))
@@ -84,8 +91,9 @@ func Message(m *wire.Message) any {
 			}
 			return arr{Nat(n.Index), p}
 		}),
-		"introduced_at": introRef(m.IntroducedAt),
-		"acks":          list(m.Acks, func(a wire.Ack) any { return arr{Nat(a.Member), Nat(a.Idx64)} }),
+		"introduced_at":   introRef(m.IntroducedAt),
+		"acks":            list(m.Acks, func(a wire.Ack) any { return arr{Nat(a.Member), Nat(a.Idx64)} }),
+		"membership_hash": hexOrNil(m.MembershipHash),
 	}
 }
 
@@ -265,6 +273,7 @@ func Group(g *member.Group) any {
 		"tokens":  Nat(g.Tokens), "unnumbered": list(g.Unnumbered, at),
 		"introduced_at": ia, "joined_through": optHex(g.JoinedThrough),
 		"awaiting_start": pairs(&g.AwaitingStart, hexKey, func(i member.Index) any { return Hex(i) }),
+		"allocates":      g.Allocates,
 		"received": pairs(&g.Received, func(r member.ReceivedAt) any { return arr{Hex(r.Sender), Hex(r.Index)} },
 			func(n int) any { return Nat(n) }),
 	}

@@ -8,7 +8,7 @@ import (
 
 func TestReplayKatzenqtTraces(t *testing.T) {
 	files, _ := filepath.Glob("../../../../testdata/katzenqt1/groupchat_traces/*.jsonl")
-	if len(files) != 15 {
+	if len(files) != 20 {
 		t.Fatalf("%d traces", len(files))
 	}
 	replayAll(t, files)
