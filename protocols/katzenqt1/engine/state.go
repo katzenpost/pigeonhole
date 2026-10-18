@@ -87,7 +87,8 @@ type Joining struct {
 	Box1           member.Index
 }
 
-// Inducting is inducting a member whose voucher we were given.
+// Inducting is inducting a member whose voucher we were given: reading the voucher until
+// Payload is set.
 type Inducting struct {
 	Voucher         []byte
 	Payload         []byte

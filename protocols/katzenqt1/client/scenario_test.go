@@ -15,6 +15,7 @@ import (
 	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/engine"
 	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/member"
 	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/member/tracejson"
+	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/store"
 	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/wire"
 	"github.com/katzenpost/pigeonhole/transport/sim"
 )
@@ -54,6 +55,8 @@ type scMember struct {
 	name  string
 	eng   *engine.Engine
 	files memFiles
+	// st, when set, keeps the member's state on disk, saved after every step as a client does.
+	st *store.Store
 }
 
 type scWorld struct {
@@ -65,6 +68,11 @@ type scWorld struct {
 	held    map[int]bool
 	epoch   uint64
 	unsaved []string
+	// crash, if set, is told of each action done; when it says so, the member restarts from what
+	// is on disk, before (lost) or after (kept) what came of the action is taken in.
+	crash func(who int, a engine.Action) (restart, lost bool)
+	// restarts is how many times each member restarted.
+	restarts map[int]int
 }
 
 func (w *scWorld) who(name string) int {
@@ -79,18 +87,36 @@ func (w *scWorld) who(name string) int {
 
 func (w *scWorld) feed(i int, in engine.Input) {
 	m := w.members[i]
-	res := m.eng.Step(0, in)
-	for _, f := range res.Files {
-		m.files[f.File] = f.Bytes
-	}
-	for _, a := range res.Actions {
-		w.queue = append(w.queue, queued{i, a})
-	}
+	w.release(i, m.eng.Step(0, in))
 	for _, c := range m.eng.State.Chats {
 		if c.Group != nil && !savesWhole(c.Group) {
 			w.unsaved = append(w.unsaved, fmt.Sprintf("%s %s after %T", m.name, c.Name, in))
 		}
 	}
+}
+
+// release saves what a step changed, then queues the work it asks for.
+func (w *scWorld) release(i int, res engine.Result) {
+	m := w.members[i]
+	if m.st != nil {
+		if err := m.st.Commit(m.eng.State, &res); err != nil {
+			panic(err)
+		}
+	} else {
+		for _, f := range res.Files {
+			m.files[f.File] = f.Bytes
+		}
+	}
+	for _, a := range res.Actions {
+		w.queue = append(w.queue, queued{i, a})
+	}
+}
+
+func (m *scMember) filesOf() Files {
+	if m.st != nil {
+		return store.Files{S: m.st}
+	}
+	return m.files
 }
 
 // savesWhole says whether a group reads back as it was written.
@@ -112,9 +138,18 @@ func (w *scWorld) act() bool {
 	}
 	q := w.queue[k]
 	w.queue = slices.Delete(w.queue, k, k+1)
-	x := &Executor{Backend: sim.Backend{World: w.sim}, Files: w.members[q.who].files,
+	x := &Executor{Backend: sim.Backend{World: w.sim}, Files: w.members[q.who].filesOf(),
 		Sleep: func(context.Context, int) error { return nil }}
 	o := x.Perform(context.Background(), q.a)
+	if w.crash != nil {
+		if restart, lost := w.crash(q.who, q.a); restart {
+			if !lost && o.Input != nil && o.After == 0 && o.Retry == nil {
+				w.feed(q.who, o.Input)
+			}
+			w.restartMember(q.who)
+			return true
+		}
+	}
 	switch {
 	case o.Retry != nil:
 		w.later = append(w.later, later{at: w.clock + o.After, who: q.who, a: o.Retry})

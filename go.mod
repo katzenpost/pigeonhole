@@ -5,6 +5,7 @@ go 1.26.9
 require (
 	github.com/katzenpost/hpqc v0.0.93
 	github.com/katzenpost/katzenpost v0.0.107
+	go.etcd.io/bbolt v1.4.3
 	golang.org/x/crypto v0.58.0
 )
 

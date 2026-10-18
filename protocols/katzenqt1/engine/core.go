@@ -337,7 +337,7 @@ func (e *Engine) startWrite(c *Chat) {
 // startInduction seals the new member's reply, once everything owed is written.
 func (e *Engine) startInduction(c *Chat) {
 	i, g := c.Inducting, c.Group
-	if i == nil || g == nil || i.Sealing || i.Sealed != nil ||
+	if i == nil || g == nil || i.Payload == nil || i.Sealing || i.Sealed != nil ||
 		slices.ContainsFunc(c.Jobs, func(j *Job) bool { return j.Token != nil }) {
 		return
 	}
@@ -597,6 +597,7 @@ func (e *Engine) handle(in Input) {
 		case err != nil:
 			e.notice(c, NotAVoucher)
 		default:
+			c.Inducting = &Inducting{Voucher: voucher}
 			e.emit(DoReadVoucher{c.ID, voucher})
 			e.notice(c, ReadingVoucher)
 		}
@@ -1015,7 +1016,9 @@ func (e *Engine) Resume(now int64) Result {
 			}
 		}
 		if i := c.Inducting; i != nil {
-			if i.Sealed != nil {
+			if i.Payload == nil {
+				e.emit(DoReadVoucher{c.ID, i.Voucher})
+			} else if i.Sealed != nil {
 				e.emit(DoPublish{c.ID, i.VoucherWriteCap, i.Box1, i.Sealed.Reply})
 			} else if i.Sealing {
 				// The sealed reply was never kept, so it was never published: seal it again.
