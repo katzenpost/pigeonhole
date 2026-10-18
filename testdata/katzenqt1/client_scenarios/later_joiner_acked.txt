@@ -1,0 +1,40 @@
+# Three members, Carol added after Bob. Everyone sends, everyone reads everyone, and each next
+# message acknowledges what its sender read. On namenlos, Carol's first message was read by both
+# and never credited as acknowledged; a replica epoch passed during that run.
+
+create alice g
+join bob g
+join carol g
+run
+invite alice g bob
+run
+invite alice g carol
+run
+send alice g hello from alice
+send bob g hello from bob
+send carol g hello from carol
+run
+send alice g alice read everyone
+send bob g bob read everyone
+send carol g carol read everyone
+run
+show carol g
+----
+— minting a voucher
+— give the voucher code to a member of the group (it is also in voucher-g.txt)
+— joined the group
+carol ✓✓: hello from carol
+alice: hello from alice
+bob: hello from bob
+carol ✓: carol read everyone
+alice: alice read everyone
+bob: bob read everyone
+
+acked carol g
+----
+alice:1 bob:1
+
+acked bob g
+----
+alice:1 carol:1
+

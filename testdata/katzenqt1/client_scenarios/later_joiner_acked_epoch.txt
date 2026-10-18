@@ -1,0 +1,41 @@
+# As later_joiner_acked, with a replica epoch passing after the first messages are written and
+# before the acknowledgements.
+
+create alice g
+join bob g
+join carol g
+run
+invite alice g bob
+run
+invite alice g carol
+run
+send alice g hello from alice
+send bob g hello from bob
+send carol g hello from carol
+run
+epoch
+run 60
+send alice g alice read everyone
+send bob g bob read everyone
+send carol g carol read everyone
+run
+show carol g
+----
+— minting a voucher
+— give the voucher code to a member of the group (it is also in voucher-g.txt)
+— joined the group
+carol ✓✓: hello from carol
+alice: hello from alice
+bob: hello from bob
+carol ✓: carol read everyone
+alice: alice read everyone
+bob: bob read everyone
+
+acked carol g
+----
+alice:1 bob:1
+
+refused
+----
+none
+

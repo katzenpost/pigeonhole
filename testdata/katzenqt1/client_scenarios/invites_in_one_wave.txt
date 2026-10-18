@@ -1,0 +1,49 @@
+# Five members: all four joiners mint vouchers at once, then join in waves, each member already in
+# adding one joiner at a time, so that Alice and Bob add Carol and Dave in the same stretch of
+# time. On namenlos, Carol was not in fifteen minutes after this wave.
+
+create alice g
+join bob g
+join carol g
+join dave g
+join erin g
+run
+invite alice g bob
+run
+state bob g
+----
+joined
+
+invite alice g carol
+invite bob g dave
+run
+state carol g
+----
+joined
+
+state dave g
+----
+joined
+
+invite alice g erin
+run
+members alice g
+----
+bob carol dave erin
+
+members bob g
+----
+alice carol dave erin
+
+members carol g
+----
+alice bob dave erin
+
+members dave g
+----
+alice bob carol erin
+
+members erin g
+----
+alice bob carol dave
+

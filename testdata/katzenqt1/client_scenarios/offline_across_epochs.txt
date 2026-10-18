@@ -1,0 +1,29 @@
+# Bob is offline while two replica epochs pass. A replica keeps a box for the epoch it was stored
+# in and the next, so Alice's message lasts only because she writes it again at each new epoch;
+# Bob reads it when he is back.
+
+create alice g
+join bob g
+run
+invite alice g bob
+run
+hold bob
+send alice g said before two epochs
+run 60
+epoch
+run 60
+epoch
+run 60
+release bob
+run
+show bob g
+----
+— minting a voucher
+— give the voucher code to a member of the group (it is also in voucher-g.txt)
+— joined the group
+alice: said before two epochs
+
+refused
+----
+none
+
