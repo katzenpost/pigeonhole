@@ -52,7 +52,7 @@ type PleaseAdd struct {
 }
 
 type ReplyWho struct {
-	PleaseAdds []*PleaseAdd
+	PleaseAdds    []*PleaseAdd
 	Rosters       []*Roster
 	HasRosters    bool
 	Introductions []IntroAt
