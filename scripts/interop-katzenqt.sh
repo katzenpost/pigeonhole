@@ -57,6 +57,11 @@ step "katzenqt reads katzenqt1"
 "$kq" read g 1800 "from katzenqt1" "${conn[@]}"
 step "katzenqt1 reads katzenqt"
 wait_for "LINE g .*: from katzenqt$"
+# katzenqt reads on past its own Introduction, so that what it sends says where it was
+# introduced, and katzenqt1 can tell whom its acknowledgements name.
+step "katzenqt1 sends again, and katzenqt reads up to it"
+echo "send g once more" >&3
+"$kq" read g 1800 "once more" "${conn[@]}"
 step "katzenqt acknowledges, and katzenqt1 sees it"
 "$kq" send g "katzenqt read you" "${conn[@]}"
 wait_for "LINE g .*: katzenqt read you"
