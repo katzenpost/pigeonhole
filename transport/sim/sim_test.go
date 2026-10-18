@@ -36,7 +36,7 @@ func TestReplicaRules(t *testing.T) {
 	if err := b.WriteBox(ctx, kp.WriteCap, kp.First, []byte("a")); err != nil {
 		t.Fatalf("matching rewrite: %v", err)
 	}
-	if err := b.WriteBox(ctx, kp.WriteCap, kp.First, []byte("b")); !errors.Is(err, transport.ErrBoxAlreadyExists) || w.Refused != 1 {
+	if err := b.WriteBox(ctx, kp.WriteCap, kp.First, []byte("b")); !errors.Is(err, transport.ErrBoxAlreadyExists) || len(w.Refused) != 1 {
 		t.Fatalf("different rewrite: %v", err)
 	}
 	if r := read(kp.First); r.Kind != transport.Data || string(r.Plaintext) != "a" {

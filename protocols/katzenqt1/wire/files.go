@@ -273,4 +273,3 @@ func TextOf(content []byte) string {
 	}
 	return "[a message that cannot be shown]"
 }
-

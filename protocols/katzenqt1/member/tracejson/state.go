@@ -183,4 +183,6 @@ func readGroup(j any) *member.Group {
 }
 
 // ReadGroup reads back a member's state as Group writes it.
-func ReadGroup(j any) (*member.Group, error) { return get(func() *member.Group { return readGroup(j) }) }
+func ReadGroup(j any) (*member.Group, error) {
+	return get(func() *member.Group { return readGroup(j) })
+}

@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"errors"
 	"io"
 	"sync"
@@ -29,8 +30,9 @@ type World struct {
 	Rand         io.Reader
 	maxPlaintext int
 	failWrites   int
-	// Refused counts writes refused for holding other contents.
-	Refused int
+	// Refused is each write refused for its box holding other contents: the stream's key and
+	// the box's Idx64.
+	Refused []Box
 	Writes  int
 	// Hook, if set, sees every write and read before it happens, and fails it if it returns an
 	// error.
@@ -66,6 +68,12 @@ func (w *World) SetMaxPlaintext(n int) {
 	w.maxPlaintext = n
 }
 
+// Box names a box: its stream's key and its Idx64.
+type Box struct {
+	Stream string
+	Idx64  uint64
+}
+
 var errFailed = errors.New("sim: write failed")
 
 func boxKey(cap, index []byte) string {
@@ -95,7 +103,7 @@ func (w *World) write(readKey, index, plaintext []byte) error {
 		if bytes.Equal(old.plaintext, plaintext) {
 			return nil
 		}
-		w.Refused++
+		w.Refused = append(w.Refused, Box{string(readKey[:32]), binary.LittleEndian.Uint64(index)})
 		return transport.ErrBoxAlreadyExists
 	}
 	w.boxes[k] = box{w.epoch, bytes.Clone(plaintext)}
