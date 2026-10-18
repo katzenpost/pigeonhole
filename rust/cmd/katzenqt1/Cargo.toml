@@ -1,0 +1,19 @@
+[package]
+name = "pigeonhole-katzenqt1-cli"
+description = "A katzenqt1 group chat client without a user interface, for scripts and interop tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "katzenqt1-rs"
+path = "src/main.rs"
+
+[dependencies]
+pigeonhole-katzenqt1-client.workspace = true
+pigeonhole-katzenqt1-engine.workspace = true
+pigeonhole-transport.workspace = true
+pigeonhole-transport-thinclient.workspace = true
+tokio.workspace = true

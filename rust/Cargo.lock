@@ -614,9 +614,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "pigeonhole-katzenqt1-cli"
+version = "0.1.0"
+dependencies = [
+ "pigeonhole-katzenqt1-client",
+ "pigeonhole-katzenqt1-engine",
+ "pigeonhole-transport",
+ "pigeonhole-transport-thinclient",
+ "tokio",
+]
+
+[[package]]
 name = "pigeonhole-katzenqt1-client"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "hex",
  "pigeonhole-katzenqt1-engine",
  "pigeonhole-katzenqt1-member",
@@ -667,9 +679,11 @@ dependencies = [
 name = "pigeonhole-transport"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "ed25519-dalek",
  "pigeonhole-katzenqt1-member",
  "rand",
+ "serde_json",
  "tokio",
 ]
 

@@ -39,9 +39,13 @@ func start(t *testing.T, bin, sock, state, name string) *proc {
 	return startWith(t, bin, "-sim", sock, "-state", state, "-name", name, "-wait", "60s")
 }
 
+// startWith runs the client at bin: a directory holding the Go one, or a binary of its own.
 func startWith(t *testing.T, bin string, args ...string) *proc {
 	t.Helper()
-	cmd := exec.Command(filepath.Join(bin, "katzenqt1"), args...)
+	if st, err := os.Stat(bin); err == nil && st.IsDir() {
+		bin = filepath.Join(bin, "katzenqt1")
+	}
+	cmd := exec.Command(bin, args...)
 	in, _ := cmd.StdinPipe()
 	outp, _ := cmd.StdoutPipe()
 	cmd.Stderr = os.Stderr
@@ -107,14 +111,37 @@ func (p *proc) kill() {
 	p.cmd.Wait()
 }
 
+// clients are the pairs of clients the process tests run: the Go one, and with $RUST_BIN the
+// Rust one, alone and each with the other.
+func clients(t *testing.T, goBin string) [][2]string {
+	pairs := [][2]string{{goBin, goBin}}
+	if r := os.Getenv("RUST_BIN"); r != "" {
+		pairs = append(pairs, [2]string{r, r}, [2]string{goBin, r}, [2]string{r, goBin})
+	}
+	return pairs
+}
+
+func label(bin string) string {
+	if strings.HasSuffix(bin, "katzenqt1-rs") {
+		return "rust"
+	}
+	return "go"
+}
+
 func TestKill9(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and runs processes")
 	}
+	goBin := filepath.Join(t.TempDir(), "bin")
+	os.Mkdir(goBin, 0o700)
+	build(t, goBin)
+	for _, p := range clients(t, goBin) {
+		t.Run(label(p[0])+"-"+label(p[1]), func(t *testing.T) { kill9(t, goBin, p[0], p[1]) })
+	}
+}
+
+func kill9(t *testing.T, bin, aliceBin, bobBin string) {
 	dir := t.TempDir()
-	bin := filepath.Join(dir, "bin")
-	os.Mkdir(bin, 0o700)
-	build(t, bin)
 	sock := filepath.Join(dir, "sim.sock")
 	sim := exec.Command(filepath.Join(bin, "pigeonhole-sim"), "-socket", sock)
 	if err := sim.Start(); err != nil {
@@ -131,8 +158,8 @@ func TestKill9(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	aliceState, bobState := filepath.Join(dir, "alice"), filepath.Join(dir, "bob")
-	alice := start(t, bin, sock, aliceState, "alice")
-	bob := start(t, bin, sock, bobState, "bob")
+	alice := start(t, aliceBin, sock, aliceState, "alice")
+	bob := start(t, bobBin, sock, bobState, "bob")
 	defer bob.kill()
 	alice.send("create g")
 	alice.waitFor(t, func(l string) bool { return l == "JOINED g" })
@@ -156,7 +183,7 @@ func TestKill9(t *testing.T) {
 				taken = append(taken, fmt.Sprintf("m%d.%d", round, i))
 			}
 		}
-		alice = start(t, bin, sock, aliceState, "alice")
+		alice = start(t, aliceBin, sock, aliceState, "alice")
 	}
 	defer alice.kill()
 	for _, m := range taken {

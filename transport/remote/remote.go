@@ -1,5 +1,6 @@
-// Package remote serves a transport over a socket, so that clients in other processes share one
-// Pigeonhole: for tests that stop and start clients, as an in-memory one cannot outlive them.
+// Package remote serves a transport over a socket, as JSON-RPC 1.0 (bytes in base64), so that
+// clients in other processes, in Go or in Rust, share one Pigeonhole: for tests that stop and
+// start clients, as an in-memory one cannot outlive them.
 package remote
 
 import (
@@ -7,6 +8,7 @@ import (
 	"errors"
 	"net"
 	"net/rpc"
+	"net/rpc/jsonrpc"
 
 	"github.com/katzenpost/pigeonhole/transport"
 )
@@ -88,8 +90,13 @@ func Serve(l net.Listener, b transport.Backend) error {
 	if err := srv.RegisterName("Pigeonhole", &Service{b}); err != nil {
 		return err
 	}
-	srv.Accept(l)
-	return nil
+	for {
+		conn, err := l.Accept()
+		if err != nil {
+			return err
+		}
+		go srv.ServeCodec(jsonrpc.NewServerCodec(conn))
+	}
 }
 
 // Client is a transport served by Serve.
@@ -98,7 +105,7 @@ type Client struct{ c *rpc.Client }
 var _ transport.Backend = (*Client)(nil)
 
 func Dial(network, address string) (*Client, error) {
-	c, err := rpc.Dial(network, address)
+	c, err := jsonrpc.Dial(network, address)
 	if err != nil {
 		return nil, err
 	}

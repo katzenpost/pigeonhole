@@ -4,7 +4,10 @@
 
 use std::future::Future;
 
+pub mod remote;
 pub mod sim;
+
+use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -108,4 +111,56 @@ pub trait Backend: Send + Sync + 'static {
         sealed_reply: &[u8],
         write_cap: &[u8],
     ) -> impl Future<Output = Result<Opened>> + Send;
+}
+
+impl<B: Backend> Backend for Arc<B> {
+    fn new_keypair(&self) -> impl Future<Output = Result<Keypair>> + Send {
+        (**self).new_keypair()
+    }
+    fn write_box(
+        &self,
+        write_cap: &[u8],
+        index: &[u8],
+        plaintext: &[u8],
+    ) -> impl Future<Output = Result<()>> + Send {
+        (**self).write_box(write_cap, index, plaintext)
+    }
+    fn read_box(&self, read_cap: &[u8], index: &[u8]) -> impl Future<Output = Result<Read>> + Send {
+        (**self).read_box(read_cap, index)
+    }
+    fn replica_epoch(&self) -> impl Future<Output = Result<u64>> + Send {
+        (**self).replica_epoch()
+    }
+    fn max_plaintext(&self) -> impl Future<Output = Result<usize>> + Send {
+        (**self).max_plaintext()
+    }
+    fn voucher_mint(
+        &self,
+        write_cap: &[u8],
+        name: &str,
+    ) -> impl Future<Output = Result<Minted>> + Send {
+        (**self).voucher_mint(write_cap, name)
+    }
+    fn voucher_derive_stream(
+        &self,
+        voucher: &[u8],
+    ) -> impl Future<Output = Result<(Vec<u8>, Vec<u8>)>> + Send {
+        (**self).voucher_derive_stream(voucher)
+    }
+    fn voucher_induct(
+        &self,
+        voucher: &[u8],
+        payload: &[u8],
+        who_reply: &[u8],
+    ) -> impl Future<Output = Result<Inducted>> + Send {
+        (**self).voucher_induct(voucher, payload, who_reply)
+    }
+    fn voucher_open(
+        &self,
+        secret_key: &[u8],
+        sealed_reply: &[u8],
+        write_cap: &[u8],
+    ) -> impl Future<Output = Result<Opened>> + Send {
+        (**self).voucher_open(secret_key, sealed_reply, write_cap)
+    }
 }
