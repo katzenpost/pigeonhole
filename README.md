@@ -2,15 +2,36 @@
 
 Group communication protocols over Katzenpost's Pigeonhole storage, in Go and Rust.
 
-Each protocol under `protocols/` has a sans-IO state machine and a client that drives it over the
-thin client.
+Each protocol under `protocols/` has a sans-IO state machine, an engine that is a whole client
+without IO, and a client that carries the engine's work out over a transport and keeps its state
+on disk. Every step's changes are saved, synced, before any of the work it asks for starts.
 
 - `protocols/katzenqt1`: katzenqt's group chat as of October 2026.
+  - `wire`: message fields, GroupChatMessage CBOR, box framing, the reply to a new member, files.
+  - `member`: one member of a group, as a state machine; its trace format, and katzenqt's
+    scenario simulator.
+  - `engine`: the client without IO.
+  - `store`: its state, in bbolt; in Rust, redb, as a module of the client crate.
+  - `client`: the client, over a transport.
+- `transport`: what a client asks of Pigeonhole; over the client daemon's thin client, in memory
+  for tests, and served from one process to others (`remote`, JSON-RPC).
+- `cmd/katzenqt1` (Go) and `rust/cmd/katzenqt1` (`katzenqt1-rs`): clients without a user
+  interface, for scripts and interop tests; `cmd/pigeonhole-sim` serves an in-memory Pigeonhole.
 
-`testdata/` holds vectors shared with cryptlib, katzenqt and group_chat_client; `SOURCES` names
-the commits they were copied from.
+Go is at the root, Rust in `rust/`. `testdata/` holds vectors shared with cryptlib, katzenqt and
+group_chat_client; `SOURCES` names the commits they were copied from.
+
+## Testing
 
 ```
-make test
-make verify-testdata
+make test rust-test        # unit tests, scenarios, crashes at every action, kill -9
+make verify-testdata       # the vectors are as copied
+make conformance           # against katzenqt and Lean's model: fresh traces both ways
+make rust-conformance
+make e2e DAEMON=@katzenpost       # two clients over a running client daemon
+make interop DAEMON=@katzenpost   # with katzenqt-headless
 ```
+
+The cross-checks need checkouts of katzenqt (`KATZENQT`) and cryptlib (`CRYPTLIB`). Setting
+`RUST_BIN` to `rust/target/release/katzenqt1-rs` runs the process tests with Go and Rust clients
+together.
