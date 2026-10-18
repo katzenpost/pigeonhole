@@ -277,15 +277,14 @@ impl Group {
 
     /// Our own Introduction by the introducer we joined through: say where, in IntroducedAt.
     fn note_own(&mut self, introducer: &Key, index: &Index, new: &Key) {
-        if new == &self.me() && self.joined_through.as_ref() == Some(introducer) {
-            if let Some(place) = self.rosters.index_of(&self.me(), introducer) {
+        if new == &self.me() && self.joined_through.as_ref() == Some(introducer)
+            && let Some(place) = self.rosters.index_of(&self.me(), introducer) {
                 self.introduced_at = Some(IntroRef {
                     introducer: place,
                     index: index.clone(),
                 });
                 self.joined_through = None;
             }
-        }
     }
 
     /// An IntroducedAt read earlier named this Introduction.

@@ -76,11 +76,10 @@ impl Replica {
     /// A write to a box still kept succeeds only with what it holds already, and a tombstone is
     /// always stored.
     fn write(&mut self, index: &Index, b: Stored) -> &'static str {
-        if b.is_some() {
-            if let Some(old) = self.read(index) {
+        if b.is_some()
+            && let Some(old) = self.read(index) {
                 return if old == &b { "same" } else { "refused" };
             }
-        }
         let mut bucket: Vec<(Index, Stored)> = self
             .bucket(self.epoch)
             .iter()
@@ -326,13 +325,11 @@ impl<'a> World<'a> {
             let Some(r) = g.sent.records.get(&idx64_of(index)) else {
                 continue;
             };
-            if r.index == index {
-                if let Some(Payload::Message(msg)) = &r.plaintext {
-                    if let Some(i) = &msg.introduction {
+            if r.index == index
+                && let Some(Payload::Message(msg)) = &r.plaintext
+                    && let Some(i) = &msg.introduction {
                         return i.name.clone();
                     }
-                }
-            }
         }
         "?".into()
     }
@@ -423,8 +420,8 @@ impl<'a> World<'a> {
         let Some(o) = self.by_key(stream) else {
             return Ok(lines);
         };
-        if let (Fetched::NotFound, Some(here)) = (f, self.members[o].ordinal_of(index)) {
-            if let Some(h) = self.group_of(i)?.ledger.heard.get(stream) {
+        if let (Fetched::NotFound, Some(here)) = (f, self.members[o].ordinal_of(index))
+            && let Some(h) = self.group_of(i)?.ledger.heard.get(stream) {
                 for (by, &heard) in h {
                     if self.members[o]
                         .ordinal_at(heard)
@@ -438,7 +435,6 @@ impl<'a> World<'a> {
                     }
                 }
             }
-        }
         Ok(lines)
     }
 
@@ -626,8 +622,8 @@ impl<'a> World<'a> {
         let mut reported = self.members[i].reported;
         for k in keys {
             let r = &g.sent.records[&k];
-            if (k as i128) > reported {
-                if let Some(Payload::Message(m)) = &r.plaintext {
+            if (k as i128) > reported
+                && let Some(Payload::Message(m)) = &r.plaintext {
                     lines.push(format!(
                         "{} {}",
                         self.at_index(&self.members[i].key(), &r.index)?,
@@ -635,7 +631,6 @@ impl<'a> World<'a> {
                     ));
                     reported = k as i128;
                 }
-            }
         }
         self.members[i].reported = reported;
         Ok(lines)
