@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["protocols/katzenqt1/wire", "protocols/katzenqt1/member"]
+members = ["protocols/katzenqt1/wire", "protocols/katzenqt1/member", "transport", "transport/thinclient"]
 
 [workspace.package]
 edition = "2024"
@@ -12,6 +12,8 @@ version = "0.1.0"
 [workspace.dependencies]
 pigeonhole-katzenqt1-wire = { path = "protocols/katzenqt1/wire", version = "0.1.0" }
 pigeonhole-katzenqt1-member = { path = "protocols/katzenqt1/member", version = "0.1.0" }
+pigeonhole-transport = { path = "transport", version = "0.1.0" }
+tokio = { version = "1", features = ["full"] }
 sha2 = "0.10"
 blake2 = "0.10"
 indexmap = "2"

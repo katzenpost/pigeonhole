@@ -77,9 +77,10 @@ impl Replica {
     /// always stored.
     fn write(&mut self, index: &Index, b: Stored) -> &'static str {
         if b.is_some()
-            && let Some(old) = self.read(index) {
-                return if old == &b { "same" } else { "refused" };
-            }
+            && let Some(old) = self.read(index)
+        {
+            return if old == &b { "same" } else { "refused" };
+        }
         let mut bucket: Vec<(Index, Stored)> = self
             .bucket(self.epoch)
             .iter()
@@ -327,9 +328,10 @@ impl<'a> World<'a> {
             };
             if r.index == index
                 && let Some(Payload::Message(msg)) = &r.plaintext
-                    && let Some(i) = &msg.introduction {
-                        return i.name.clone();
-                    }
+                && let Some(i) = &msg.introduction
+            {
+                return i.name.clone();
+            }
         }
         "?".into()
     }
@@ -421,20 +423,21 @@ impl<'a> World<'a> {
             return Ok(lines);
         };
         if let (Fetched::NotFound, Some(here)) = (f, self.members[o].ordinal_of(index))
-            && let Some(h) = self.group_of(i)?.ledger.heard.get(stream) {
-                for (by, &heard) in h {
-                    if self.members[o]
-                        .ordinal_at(heard)
-                        .is_some_and(|there| there >= here)
-                    {
-                        lines.push(format!(
-                            "  stuck: {} acked {}",
-                            self.name_of(Some(by)),
-                            self.at_idx64(stream, heard)?
-                        ));
-                    }
+            && let Some(h) = self.group_of(i)?.ledger.heard.get(stream)
+        {
+            for (by, &heard) in h {
+                if self.members[o]
+                    .ordinal_at(heard)
+                    .is_some_and(|there| there >= here)
+                {
+                    lines.push(format!(
+                        "  stuck: {} acked {}",
+                        self.name_of(Some(by)),
+                        self.at_idx64(stream, heard)?
+                    ));
                 }
             }
+        }
         Ok(lines)
     }
 
@@ -623,14 +626,15 @@ impl<'a> World<'a> {
         for k in keys {
             let r = &g.sent.records[&k];
             if (k as i128) > reported
-                && let Some(Payload::Message(m)) = &r.plaintext {
-                    lines.push(format!(
-                        "{} {}",
-                        self.at_index(&self.members[i].key(), &r.index)?,
-                        self.show_msg(m)
-                    ));
-                    reported = k as i128;
-                }
+                && let Some(Payload::Message(m)) = &r.plaintext
+            {
+                lines.push(format!(
+                    "{} {}",
+                    self.at_index(&self.members[i].key(), &r.index)?,
+                    self.show_msg(m)
+                ));
+                reported = k as i128;
+            }
         }
         self.members[i].reported = reported;
         Ok(lines)
