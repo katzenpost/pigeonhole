@@ -822,3 +822,9 @@ func (g *Group) BeginInduction() []Outgoing {
 }
 
 func (g *Group) CancelInduction() { g.release() }
+
+// Known is every index owner is known to have assigned, in ascending order, and to whom.
+func (g *Group) Known(owner Key) []KnownEntry { return g.Rosters.known(owner) }
+
+// Resolve is who owner numbered index, if this member can tell.
+func (g *Group) Resolve(owner Key, index int) (Key, bool) { return g.Rosters.resolve(owner, index) }

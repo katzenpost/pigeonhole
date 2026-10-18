@@ -269,3 +269,59 @@ func Group(g *member.Group) any {
 			func(n int) any { return Nat(n) }),
 	}
 }
+
+func resultJSON(r member.ReadResult) any {
+	switch r.Kind {
+	case member.ReadNotFound:
+		return "not found"
+	case member.ReadTombstone:
+		return "tombstone"
+	}
+	return obj{"data": Message(r.Message)}
+}
+
+func indexes(is []member.Index) any { return list(is, func(i member.Index) any { return Hex(i) }) }
+
+func Event(e member.Event) any {
+	switch e := e.(type) {
+	case member.Send:
+		return obj{"type": "Send", "content": Hex(e.Content)}
+	case member.Read:
+		return obj{"type": "Read", "stream": Hex(e.Stream)}
+	case member.Scan:
+		return obj{"type": "Scan", "stream": Hex(e.Stream)}
+	case member.BoxRead:
+		return obj{"type": "BoxRead", "stream": Hex(e.Stream), "index": Hex(e.Index),
+			"result": resultJSON(e.Result), "next_index": optHex(e.Next)}
+	case member.IndexesDerived:
+		return obj{"type": "IndexesDerived", "stream": Hex(e.Stream), "indexes": indexes(e.Indexes)}
+	case member.Walked:
+		return obj{"type": "Walked", "stream": Hex(e.Stream), "target": optHex(e.Target),
+			"skipped": indexes(e.Skipped), "steps": Nat(e.Steps)}
+	case member.Invite:
+		return obj{"type": "Invite", "name": e.Name, "read_cap": Hex(e.ReadCap)}
+	case member.Introduce:
+		return obj{"type": "Introduce", "name": e.Name, "read_cap": Hex(e.ReadCap)}
+	case member.Remove:
+		return obj{"type": "Remove", "member": Hex(e.Member)}
+	case member.EpochChanged:
+		return obj{"type": "EpochChanged", "epoch": Nat(e.Epoch)}
+	}
+	panic("unknown event")
+}
+
+// Args are a call's arguments: the policy and recheck in force, and what the call takes.
+func Args(g *member.Group, policy member.Retention, recheck int, more map[string]any) map[string]any {
+	p := Retention(policy).(obj)
+	p["type"] = "Retention"
+	args := obj{"policy": p, "recheck": Nat(recheck)}
+	for k, v := range more {
+		args[k] = v
+	}
+	return args
+}
+
+// Line is one trace line.
+func Line(call string, me member.Key, name string, args map[string]any, result any, g *member.Group) map[string]any {
+	return obj{"call": call, "me": Hex(me), "member": name, "args": args, "result": result, "state": Group(g)}
+}
