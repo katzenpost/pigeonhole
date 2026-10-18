@@ -302,3 +302,39 @@ func (f Files) Remove(name string) error {
 	}
 	return nil
 }
+
+// Unsaved is the conversations whose record or lines differ from what was last saved: a step
+// that changed them without saying so. For tests.
+func (s *Store) Unsaved(st *engine.State) ([]engine.ChatID, error) {
+	var out []engine.ChatID
+	err := s.db.View(func(tx *bolt.Tx) error {
+		for _, c := range st.Chats {
+			rec, err := encodeChat(c)
+			if err != nil {
+				return err
+			}
+			b := tx.Bucket(chatsBucket).Bucket([]byte(c.ID))
+			if b == nil || string(b.Get(recordKey)) != string(rec) {
+				out = append(out, c.ID)
+				continue
+			}
+			lb := b.Bucket(linesBucket)
+			if lb.Stats().KeyN != len(c.Log) {
+				out = append(out, c.ID)
+				continue
+			}
+			for _, l := range c.Log {
+				v, err := encodeLine(l)
+				if err != nil {
+					return err
+				}
+				if string(lb.Get(lineKey(l.ID))) != string(v) {
+					out = append(out, c.ID)
+					break
+				}
+			}
+		}
+		return nil
+	})
+	return out, err
+}

@@ -70,7 +70,12 @@ type scWorld struct {
 	unsaved []string
 	// crash, if set, is told of each action done; when it says so, the member restarts from what
 	// is on disk, before (lost) or after (kept) what came of the action is taken in.
-	crash func(who int, a engine.Action) (restart, lost bool)
+	crash         func(who int, a engine.Action) (restart, lost bool)
+	skipSaveCheck bool
+	// checkSaved checks after each step that all the state on disk is what the engine holds.
+	checkSaved bool
+	// onCommand, if set, is called after each command.
+	onCommand func()
 	// restarts is how many times each member restarted.
 	restarts map[int]int
 }
@@ -89,7 +94,7 @@ func (w *scWorld) feed(i int, in engine.Input) {
 	m := w.members[i]
 	w.release(i, m.eng.Step(0, in))
 	for _, c := range m.eng.State.Chats {
-		if c.Group != nil && !savesWhole(c.Group) {
+		if !w.skipSaveCheck && c.Group != nil && !savesWhole(c.Group) {
 			w.unsaved = append(w.unsaved, fmt.Sprintf("%s %s after %T", m.name, c.Name, in))
 		}
 	}
@@ -101,6 +106,11 @@ func (w *scWorld) release(i int, res engine.Result) {
 	if m.st != nil {
 		if err := m.st.Commit(m.eng.State, &res); err != nil {
 			panic(err)
+		}
+		if w.checkSaved {
+			if u, err := m.st.Unsaved(m.eng.State); err != nil || len(u) > 0 {
+				panic(fmt.Sprintf("%s: changed without saying so: %v %v", m.name, u, err))
+			}
 		}
 	} else {
 		for _, f := range res.Files {
@@ -434,11 +444,18 @@ func (w *scWorld) command(words []string) ([]string, error) {
 // runScenario runs a scenario: the script with every checked command's output replaced by what
 // it printed now.
 func runScenario(script string) (string, []string, error) {
+	out, w, err := runScenarioIn(&scWorld{sim: sim.NewWorld(), held: map[int]bool{}, epoch: 1}, script)
+	if err != nil {
+		return "", nil, err
+	}
+	return out, w.unsaved, nil
+}
+
+func runScenarioIn(w *scWorld, script string) (string, *scWorld, error) {
 	lines := strings.Split(script, "\n")
 	if len(lines) > 0 && lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
 	}
-	w := &scWorld{sim: sim.NewWorld(), held: map[int]bool{}, epoch: 1}
 	var out []string
 	for i := 0; i < len(lines); {
 		line := lines[i]
@@ -452,6 +469,9 @@ func runScenario(script string) (string, []string, error) {
 		if err != nil {
 			return "", nil, err
 		}
+		if w.onCommand != nil {
+			w.onCommand()
+		}
 		if i < len(lines) && lines[i] == "----" {
 			out = append(out, "----")
 			i++
@@ -461,7 +481,7 @@ func runScenario(script string) (string, []string, error) {
 			out = append(out, printed...)
 		}
 	}
-	return strings.Join(out, "\n") + "\n", w.unsaved, nil
+	return strings.Join(out, "\n") + "\n", w, nil
 }
 
 func TestClientScenarios(t *testing.T) {
