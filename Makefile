@@ -4,7 +4,10 @@ GCC ?= $(HOME)/group_chat_client
 
 .PHONY: test vet sync-testdata verify-testdata
 
+export TMPDIR ?= $(HOME)/scratch/tmp
+
 test:
+	mkdir -p $(TMPDIR)
 	go test ./...
 
 vet:

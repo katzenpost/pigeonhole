@@ -2,6 +2,18 @@ package thinclient
 
 import "testing"
 
+func TestDialConfig(t *testing.T) {
+	if c := DialConfig("@katzenpost"); c.Dial.Unix == nil || c.Dial.Unix.Address != "@katzenpost" {
+		t.Error("abstract socket")
+	}
+	if c := DialConfig("/run/kp.sock"); c.Dial.Unix == nil {
+		t.Error("socket path")
+	}
+	if c := DialConfig("localhost:64331"); c.Dial.Tcp == nil || c.Dial.Tcp.Address != "localhost:64331" {
+		t.Error("tcp")
+	}
+}
+
 func TestMostCommon(t *testing.T) {
 	for _, c := range []struct {
 		in   []uint64
