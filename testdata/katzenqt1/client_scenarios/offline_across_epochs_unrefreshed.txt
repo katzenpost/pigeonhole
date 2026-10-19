@@ -1,0 +1,31 @@
+# As offline_across_epochs, but Alice's traffic is held too while the epochs pass, so she cannot
+# write her message again: the replicas let it go, and Bob does not read it when he is back.
+
+create alice g
+join bob g
+run
+invite alice g bob
+run
+hold bob
+send alice g said before two epochs
+run 60
+hold alice
+epoch
+run 60
+epoch
+run 60
+release bob
+run
+show bob g
+----
+— minting a voucher
+— give the voucher code to a member of the group (it is also in voucher-g.txt)
+— joined the group
+
+jobs alice g
+----
+rewrite to box 0, 259 bytes
+rewrite to box 1, 99 bytes
+rewrite to box 0, 259 bytes
+rewrite to box 1, 99 bytes
+

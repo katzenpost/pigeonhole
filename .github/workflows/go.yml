@@ -1,0 +1,15 @@
+name: go
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: scripts/verify-testdata.sh
+      - run: go vet ./...
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cd rust && cargo build --release -p pigeonhole-katzenqt1-cli
+      - run: mkdir -p "$RUNNER_TEMP/tmp" && TMPDIR="$RUNNER_TEMP/tmp" RUST_BIN="$PWD/rust/target/release/katzenqt1-rs" go test ./...

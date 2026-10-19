@@ -1,0 +1,27 @@
+# A box of a file's substream that holds other bytes stops the chat's writes and says so, rather
+# than being tried again for ever.
+
+create alice g
+join bob g
+run
+invite alice g bob
+run
+clobber-next alice WriteChunk
+send-file alice g a.bin 5000
+run
+show alice g
+----
+— a new group: adding a member's voucher code adds them
+— reading the voucher
+— added ~bob: they now read everything said in this group
+alice …: [file a.bin, 5 KB]
+— a box of our stream holds something else: is this group used from another client?
+
+state alice g
+----
+joined, 1 to write
+
+pending alice
+----
+Wake
+

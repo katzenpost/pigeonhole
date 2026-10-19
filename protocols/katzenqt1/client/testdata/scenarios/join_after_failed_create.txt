@@ -1,0 +1,32 @@
+# Making the stream to join with fails: the chat is still joining, and when the client starts
+# again it joins the group rather than founding one of its own.
+
+fail-next bob Create
+join bob g
+run
+state bob g
+----
+not joined, minting
+
+show bob g
+----
+— new stream failed: injected
+
+restart bob
+run
+state bob g
+----
+not joined, awaiting a reply
+
+create alice g
+run
+invite alice g bob
+run
+members bob g
+----
+alice
+
+members alice g
+----
+bob
+

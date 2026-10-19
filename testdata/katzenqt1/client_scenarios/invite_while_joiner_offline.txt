@@ -1,0 +1,32 @@
+# Bob mints a voucher and goes offline; Alice adds him while he is away, then says something. He
+# joins once he is back, and reads what she said after adding him.
+
+create alice g
+join bob g
+run
+hold bob
+invite alice g bob
+run
+state alice g
+----
+joined
+
+send alice g said while bob was away
+run
+state bob g
+----
+not joined, awaiting a reply
+
+release bob
+run
+state bob g
+----
+joined
+
+show bob g
+----
+— minting a voucher
+— give the voucher code to a member of the group (it is also in voucher-g.txt)
+— joined the group
+alice: said while bob was away
+
