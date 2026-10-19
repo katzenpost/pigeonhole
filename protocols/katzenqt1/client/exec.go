@@ -114,6 +114,11 @@ func (x *Executor) Perform(ctx context.Context, a engine.Action) Outcome {
 	if err == nil {
 		return o
 	}
+	return Failure(a, err)
+}
+
+// Failure is what comes of an action that failed: one that can be tried again is, later.
+func Failure(a engine.Action, err error) Outcome {
 	switch a.(type) {
 	case engine.DoRead, engine.DoScanRead, engine.DoReadChunk, engine.DoSubstream, engine.DoChunkIndexes,
 		engine.DoWrite, engine.DoWriteChunk, engine.DoDerive, engine.DoWalk:

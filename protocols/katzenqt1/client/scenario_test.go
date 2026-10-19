@@ -174,7 +174,7 @@ func (w *scWorld) act() bool {
 	switch kind := kindOf(q.a); {
 	case w.failNext[q.who] == kind:
 		delete(w.failNext, q.who)
-		o = done(engine.Failed{Chat: chatOf(q.a), What: describe(q.a) + " failed: injected"})
+		o = Failure(q.a, errors.New("injected"))
 	case w.clobberNext[q.who] == kind:
 		delete(w.clobberNext, q.who)
 		w.clobber(q.a)
