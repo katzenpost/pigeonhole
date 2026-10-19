@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use pigeonhole_katzenqt1_client::store::{Options, Store};
-use pigeonhole_katzenqt1_client::{Executor, Files, Outcome};
+use pigeonhole_katzenqt1_client::{Executor, Files, Outcome, failure};
 use pigeonhole_katzenqt1_engine::{
     Action, Chat, Engine, Input, Line, State, Status, StepResult, plain,
 };
@@ -221,15 +221,7 @@ impl World {
         let kind = kind_of(&a);
         let o = if self.fail_next.get(&who) == Some(&kind) {
             self.fail_next.remove(&who);
-            let (chat, what) = match &a {
-                Action::Create { chat, .. } => (chat.clone(), "new stream"),
-                Action::Mint { chat, .. } => (chat.clone(), "mint a voucher"),
-                _ => panic!("cannot fail {kind}"),
-            };
-            Outcome::Done(Input::Failed {
-                chat,
-                what: format!("{what} failed: injected"),
-            })
+            failure(a, "injected")
         } else {
             if self.clobber_next.get(&who) == Some(&kind) {
                 self.clobber_next.remove(&who);

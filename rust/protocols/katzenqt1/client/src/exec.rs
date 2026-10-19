@@ -111,22 +111,7 @@ impl<B: Backend, F: Files> Executor<B, F> {
     ) -> Outcome {
         match self.perform_or(a.clone(), sleep).await {
             Ok(o) => o,
-            Err(e) => match a {
-                Action::Read { .. }
-                | Action::ScanRead { .. }
-                | Action::ReadChunk { .. }
-                | Action::Substream { .. }
-                | Action::ChunkIndexes { .. }
-                | Action::Write { .. }
-                | Action::WriteChunk { .. }
-                | Action::Derive { .. }
-                | Action::Walk { .. } => Outcome::Retry(a, RETRY_MS),
-                Action::Delete { .. } => Outcome::Nothing,
-                _ => Outcome::Done(Input::Failed {
-                    chat: chat_of(&a),
-                    what: format!("{} failed: {e}", describe(&a)),
-                }),
-            },
+            Err(e) => failure(a, e),
         }
     }
 
@@ -361,5 +346,25 @@ impl<B: Backend, F: Files> Executor<B, F> {
                 }
             }
         }))
+    }
+}
+
+/// What comes of an action that failed: one that can be tried again is, later.
+pub fn failure(a: Action, e: impl std::fmt::Display) -> Outcome {
+    match a {
+        Action::Read { .. }
+        | Action::ScanRead { .. }
+        | Action::ReadChunk { .. }
+        | Action::Substream { .. }
+        | Action::ChunkIndexes { .. }
+        | Action::Write { .. }
+        | Action::WriteChunk { .. }
+        | Action::Derive { .. }
+        | Action::Walk { .. } => Outcome::Retry(a, RETRY_MS),
+        Action::Delete { .. } => Outcome::Nothing,
+        _ => Outcome::Done(Input::Failed {
+            chat: chat_of(&a),
+            what: format!("{} failed: {e}", describe(&a)),
+        }),
     }
 }

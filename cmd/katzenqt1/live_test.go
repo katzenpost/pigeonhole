@@ -96,9 +96,10 @@ func conversation(t *testing.T, via []string, aliceBin, bobBin string, long time
 			break
 		}
 		if time.Now().After(deadline) {
+			a, b := alice.has("me ✓✓: hello bob"), bob.has("me ✓✓: hello alice")
 			alice.mu.Lock()
 			bob.mu.Lock()
-			t.Fatalf("no acknowledgements: alice %v, bob %v\nalice: %s\nbob: %s", alice.has("me ✓✓: hello bob"), bob.has("me ✓✓: hello alice"),
+			t.Fatalf("no acknowledgements: alice %v, bob %v\nalice: %s\nbob: %s", a, b,
 				strings.Join(alice.lines[max(0, len(alice.lines)-12):], " | "), strings.Join(bob.lines[max(0, len(bob.lines)-12):], " | "))
 		}
 	}

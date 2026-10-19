@@ -7,4 +7,4 @@ pub mod store;
 
 pub use client::{ChatView, Client, ClientError, Config, Event, LineView, MemberView};
 
-pub use exec::{Executor, Files, Outcome, RETRY_MS};
+pub use exec::{Executor, Files, Outcome, RETRY_MS, failure};
