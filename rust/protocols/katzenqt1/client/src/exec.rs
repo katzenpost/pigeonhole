@@ -322,15 +322,16 @@ impl<B: Backend, F: Files> Executor<B, F> {
                 write_cap,
                 index,
                 box_,
-            } => {
-                b.write_box(&write_cap, &index, &box_).await?;
-                Input::WroteChunk {
+            } => match b.write_box(&write_cap, &index, &box_).await {
+                Err(Error::BoxAlreadyExists) => Input::Refused { chat, job },
+                Err(e) => return Err(e),
+                Ok(()) => Input::WroteChunk {
                     chat,
                     job,
                     n,
                     next: next(&index),
-                }
-            }
+                },
+            },
             Action::ChunkIndexes {
                 chat,
                 job,

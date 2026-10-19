@@ -1,0 +1,41 @@
+# A voucher code whose voucher was never published is read for until another code takes its
+# place, or the group is left; then it is read for no more.
+
+create alice g
+run
+invite-code alice g AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+run 60
+state alice g
+----
+joined, adding a member
+
+pending alice
+----
+ReadVoucher
+
+join bob g
+run
+invite alice g bob
+run
+members alice g
+----
+bob
+
+pending alice
+----
+Wake
+
+create alice h
+run
+invite-code alice h AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+run 60
+pending alice
+----
+ReadVoucher Wake
+
+leave alice h
+run 60
+pending alice
+----
+Wake
+

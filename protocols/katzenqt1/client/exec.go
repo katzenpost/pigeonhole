@@ -205,7 +205,11 @@ func (x *Executor) perform(ctx context.Context, a engine.Action) (Outcome, error
 		kp, err := b.NewKeypair(ctx)
 		return done(engine.Substream{Chat: a.Chat, Job: a.Job, Keypair: kp}), err
 	case engine.DoWriteChunk:
-		if err := b.WriteBox(ctx, a.WriteCap, []byte(a.Index), a.Box); err != nil {
+		err := b.WriteBox(ctx, a.WriteCap, []byte(a.Index), a.Box)
+		if errors.Is(err, transport.ErrBoxAlreadyExists) {
+			return done(engine.Refused{Chat: a.Chat, Job: a.Job}), nil
+		}
+		if err != nil {
 			return Outcome{}, err
 		}
 		return done(engine.WroteChunk{Chat: a.Chat, Job: a.Job, N: a.N, Next: next(a.Index)}), nil

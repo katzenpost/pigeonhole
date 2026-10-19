@@ -267,6 +267,30 @@ mod tests {
         assert_eq!(replica_epoch_of(&BTreeMap::new()), None);
     }
 
+    /// Over the client daemon at `$DAEMON`: the same bytes written again to a box succeed, as a
+    /// write tried again after a crash must, and other bytes are refused.
+    #[tokio::test]
+    async fn live_rewrite() {
+        let Ok(daemon) = std::env::var("DAEMON") else {
+            return;
+        };
+        let b = ThinClientBackend::dial(&daemon).await.unwrap();
+        let kp = b.new_keypair().await.unwrap();
+        let bytes = b"the same bytes, twice";
+        for _ in 0..2 {
+            b.write_box(&kp.write_cap, &kp.first, bytes).await.unwrap();
+        }
+        assert!(matches!(
+            b.write_box(&kp.write_cap, &kp.first, b"other bytes").await,
+            Err(Error::BoxAlreadyExists)
+        ));
+        assert_eq!(
+            b.read_box(&kp.read_cap, &kp.first).await.unwrap(),
+            Read::Data(bytes.to_vec())
+        );
+        b.close().await;
+    }
+
     #[test]
     fn dial() {
         assert!(dial_config("@katzenpost").unix.is_some());

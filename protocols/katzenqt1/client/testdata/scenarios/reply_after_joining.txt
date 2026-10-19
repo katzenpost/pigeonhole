@@ -1,0 +1,28 @@
+# The reply to a voucher, opened again once joined, changes nothing: bob writes on where he was.
+
+create alice g
+join bob g
+run
+invite alice g bob
+run
+send bob g one
+run
+reopen bob g
+state bob g
+----
+joined
+
+send bob g two
+run
+show alice g
+----
+— a new group: adding a member's voucher code adds them
+— reading the voucher
+— added ~bob: they now read everything said in this group
+bob: one
+bob: two
+
+refused
+----
+none
+

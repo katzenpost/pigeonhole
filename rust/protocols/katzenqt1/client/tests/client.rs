@@ -2,7 +2,7 @@
 
 use std::time::{Duration, Instant};
 
-use pigeonhole_katzenqt1_client::{Client, ClientError, Config};
+use pigeonhole_katzenqt1_client::{Client, ClientError, Config, RETRY_MS};
 use pigeonhole_transport::sim::World;
 
 fn tmp() -> tempfile::TempDir {
@@ -41,6 +41,36 @@ async fn has(c: &Client, id: &str, text: &str) -> bool {
         .unwrap()
         .iter()
         .any(|l| l.line.notice.is_none() && l.line.text == text)
+}
+
+/// Leave a group while reading for a voucher never published: the client reads for it no more.
+#[tokio::test(flavor = "multi_thread")]
+async fn leave_stops_reading() {
+    let w = World::default();
+    let dir = tmp();
+    let alice = open(&w, dir.path(), "alice").await;
+    let g = alice.create("g").await.unwrap();
+    wait_for("alice's group", || {
+        let (alice, g) = (&alice, &g);
+        async move { alice.chat(g).await.unwrap().joined }
+    })
+    .await;
+    alice
+        .invite(&g, &pigeonhole_katzenqt1_engine::voucher_code(&[0; 32]))
+        .await
+        .unwrap();
+    let before = w.state().reads;
+    wait_for("the voucher to be read for again", || {
+        let w = &w;
+        async move { w.state().reads > before + 1 }
+    })
+    .await;
+    alice.leave(&g).await.unwrap();
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let left = w.state().reads;
+    tokio::time::sleep(Duration::from_millis(2 * RETRY_MS)).await;
+    assert_eq!(w.state().reads, left, "reads after leaving");
+    alice.close().await;
 }
 
 #[tokio::test(flavor = "multi_thread")]

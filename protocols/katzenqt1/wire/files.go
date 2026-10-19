@@ -221,6 +221,10 @@ func PutPayload(cbor, payload []byte) ([]byte, bool) {
 // ChunkCount is how many boxes of max bytes a message of n bytes takes in a substream.
 func ChunkCount(n, max int) int { return (n + (max - 2)) / (max - 1) }
 
+// MaxChunks is the most boxes of max bytes a substream is sent or fetched in: a message of
+// MaxFile+max bytes, the most a sender cuts.
+func MaxChunks(max int) int { return ChunkCount(MaxFile+max, max) }
+
 // SubstreamBox is the ith box of blob's substream.
 func SubstreamBox(blob []byte, max, i int) []byte {
 	size := max - 1

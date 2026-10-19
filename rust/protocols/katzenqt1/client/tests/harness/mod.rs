@@ -3,7 +3,7 @@
 
 #![allow(dead_code)]
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use pigeonhole_katzenqt1_client::store::{Options, Store};
@@ -13,6 +13,7 @@ use pigeonhole_katzenqt1_engine::{
 };
 use pigeonhole_katzenqt1_member::Key;
 use pigeonhole_katzenqt1_wire as wire;
+use pigeonhole_transport::Backend;
 use pigeonhole_transport::sim::World as Sim;
 
 #[derive(Clone, Default)]
@@ -66,6 +67,22 @@ pub struct World {
     pub check_saved: bool,
     /// Keep the state of every member on disk, even of those a scenario brings in later.
     pub disk: bool,
+    /// For a member, the kind of its next action to fail, or whose box to fill with other bytes
+    /// first.
+    pub fail_next: HashMap<usize, String>,
+    pub clobber_next: HashMap<usize, String>,
+    /// The last reply to its voucher each member opened, by chat.
+    pub opened: HashMap<(usize, String), Input>,
+}
+
+/// An action's or an input's kind, as Go names it without its `Do`.
+pub fn kind_of(x: &impl std::fmt::Debug) -> String {
+    let s = format!("{x:?}");
+    s.split([' ', '{', '(']).next().unwrap_or("").to_string()
+}
+
+pub fn bytes_of(n: usize, seed: usize) -> Vec<u8> {
+    (0..n).map(|i| ((i * 31 + seed) % 251) as u8).collect()
 }
 
 impl Default for World {
@@ -85,6 +102,9 @@ impl Default for World {
             restarts: HashMap::new(),
             check_saved: false,
             disk: false,
+            fail_next: HashMap::new(),
+            clobber_next: HashMap::new(),
+            opened: HashMap::new(),
         }
     }
 }
@@ -110,6 +130,9 @@ impl World {
     }
 
     pub fn feed(&mut self, i: usize, input: Input) {
+        if let Input::Opened { chat, .. } = &input {
+            self.opened.insert((i, chat.clone()), input.clone());
+        }
         let res = self.members[i].eng.step(0, input);
         self.release(i, res);
     }
@@ -195,7 +218,25 @@ impl World {
             backend: self.sim.clone(),
             files: self.files_of(who),
         };
-        let o = self.rt.block_on(x.perform(a, |_| async {}));
+        let kind = kind_of(&a);
+        let o = if self.fail_next.get(&who) == Some(&kind) {
+            self.fail_next.remove(&who);
+            let (chat, what) = match &a {
+                Action::Create { chat, .. } => (chat.clone(), "new stream"),
+                Action::Mint { chat, .. } => (chat.clone(), "mint a voucher"),
+                _ => panic!("cannot fail {kind}"),
+            };
+            Outcome::Done(Input::Failed {
+                chat,
+                what: format!("{what} failed: injected"),
+            })
+        } else {
+            if self.clobber_next.get(&who) == Some(&kind) {
+                self.clobber_next.remove(&who);
+                self.clobber(&a);
+            }
+            self.rt.block_on(x.perform(a, |_| async {}))
+        };
         if let Some(lost) = crash {
             if !lost && let Outcome::Done(input) = o {
                 self.feed(who, input);
@@ -210,6 +251,22 @@ impl World {
             Outcome::Nothing => {}
         }
         true
+    }
+
+    /// Fill the box a write is for with other bytes.
+    fn clobber(&mut self, a: &Action) {
+        let (Action::Write {
+            write_cap, index, ..
+        }
+        | Action::WriteChunk {
+            write_cap, index, ..
+        }) = a
+        else {
+            panic!("not a write: {}", kind_of(a));
+        };
+        self.rt
+            .block_on(self.sim.write_box(write_cap, index, b"clobbered"))
+            .unwrap();
     }
 
     /// Let the network run until `stop` on the logical clock.
@@ -235,7 +292,12 @@ impl World {
             self.clock = self.clock.max(due);
             for (_, who, l) in now {
                 match l {
-                    Later::Act(a) => self.queue.push((who, a)),
+                    // As a client does, an action is tried again only while it is of use.
+                    Later::Act(a) => {
+                        if self.members[who].eng.state.wanted(&a) {
+                            self.queue.push((who, a));
+                        }
+                    }
                     Later::In(input) => self.feed(who, input),
                 }
             }
@@ -462,6 +524,70 @@ impl World {
         }]
     }
 
+    pub fn pending(&self, i: usize) -> Vec<String> {
+        let mut kinds: Vec<String> = self
+            .queue
+            .iter()
+            .filter(|q| q.0 == i)
+            .map(|q| kind_of(&q.1))
+            .chain(self.later.iter().filter(|l| l.1 == i).map(|l| match &l.2 {
+                Later::Act(a) => kind_of(a),
+                Later::In(input) => kind_of(input),
+            }))
+            .collect();
+        if kinds.is_empty() {
+            return vec!["none".into()];
+        }
+        kinds.sort();
+        vec![kinds.join(" ")]
+    }
+
+    pub fn files_held(&self, i: usize) -> Vec<String> {
+        let names: BTreeMap<String, ()> = self.members[i]
+            .files
+            .0
+            .lock()
+            .unwrap()
+            .keys()
+            .map(|k| (k.clone(), ()))
+            .collect();
+        if names.is_empty() {
+            return vec!["none".into()];
+        }
+        names.into_keys().collect()
+    }
+
+    /// How a member's copy of the file called `name` in `group` compares with what was sent.
+    pub fn file_got(&self, i: usize, group: &str, name: &str) -> Vec<String> {
+        let Some(a) = self.chat(i, group).and_then(|c| {
+            c.log
+                .iter()
+                .find_map(|l| l.attachment.as_ref().filter(|a| a.name == name))
+        }) else {
+            return vec!["no such file".into()];
+        };
+        match self.file(i, &a.file) {
+            None => vec!["not kept".into()],
+            Some(b) if b != bytes_of(a.size, name.len()) => {
+                vec![format!("{} bytes, not as sent", b.len())]
+            }
+            Some(b) => vec![format!("{} bytes, as sent", b.len())],
+        }
+    }
+
+    /// Restart member `i`: from disk if it keeps its state there, or else from the state it
+    /// holds, which is all saved.
+    pub fn restart_any(&mut self, i: usize) {
+        if self.members[i].st.is_some() {
+            self.restart(i);
+            return;
+        }
+        self.queue.retain(|q| q.0 != i);
+        self.later.retain(|l| l.1 != i);
+        let res = self.members[i].eng.resume(0);
+        self.release(i, res);
+    }
+
     pub fn command(&mut self, words: &[&str]) -> Result<Vec<String>, String> {
         let id = |g: &str| g.to_string();
         match words {
@@ -575,6 +701,75 @@ impl World {
                 return Ok(self.jobs(i, g));
             }
             ["refused"] => return Ok(self.refused()),
+            ["invite-code", w, g, code] => {
+                let i = self.who(w);
+                self.feed(
+                    i,
+                    Input::Induct {
+                        chat: id(g),
+                        code: code.to_string(),
+                    },
+                );
+            }
+            ["send-file", w, g, name, size] => {
+                let i = self.who(w);
+                self.feed(
+                    i,
+                    Input::SendFile {
+                        chat: id(g),
+                        name: name.to_string(),
+                        bytes: bytes_of(size.parse().unwrap(), name.len()),
+                    },
+                );
+            }
+            ["file", w, g, name] => {
+                let i = self.who(w);
+                return Ok(self.file_got(i, g, name));
+            }
+            ["voucher-file", w, g] => {
+                let i = self.who(w);
+                return Ok(vec![match self.file(i, &format!("voucher-{g}.txt")) {
+                    None => "none".into(),
+                    Some(b) if b != format!("{}\n", self.code(i, g)).into_bytes() => {
+                        "not the code".into()
+                    }
+                    Some(_) => "the code".into(),
+                }]);
+            }
+            ["files", w] => {
+                let i = self.who(w);
+                return Ok(self.files_held(i));
+            }
+            ["pending", w] => {
+                let i = self.who(w);
+                return Ok(self.pending(i));
+            }
+            ["restart", w] => {
+                let i = self.who(w);
+                self.restart_any(i);
+            }
+            ["fail-next", w, kind] => {
+                let i = self.who(w);
+                self.fail_next.insert(i, kind.to_string());
+            }
+            ["clobber-next", w, kind] => {
+                let i = self.who(w);
+                self.clobber_next.insert(i, kind.to_string());
+            }
+            ["reopen", w, g] => {
+                let i = self.who(w);
+                let Some(o) = self.opened.get(&(i, id(g))).cloned() else {
+                    return Ok(vec!["nothing to reopen".into()]);
+                };
+                self.feed(i, o);
+            }
+            ["repeat", k, rest @ ..] if !rest.is_empty() => {
+                let mut out = Vec::new();
+                for _ in 0..k.parse::<usize>().unwrap() {
+                    out = self.command(rest)?;
+                }
+                return Ok(out);
+            }
             _ => return Err(format!("not a command: {}", words.join(" "))),
         }
         Ok(Vec::new())

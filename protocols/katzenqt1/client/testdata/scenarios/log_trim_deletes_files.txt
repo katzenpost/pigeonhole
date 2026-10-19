@@ -1,0 +1,16 @@
+# A line dropped from a long conversation takes the file it carries with it.
+
+create alice g
+run
+send-file alice g a.bin 100
+run
+files alice
+----
+attachments/g/0-1-a.bin
+
+repeat 10000 invite-code alice g junk!
+run
+files alice
+----
+none
+

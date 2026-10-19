@@ -124,12 +124,22 @@ async fn sleep_or_stop(stop: &mut watch::Receiver<bool>, ms: u64) -> bool {
 }
 
 impl<B: Backend> Worker<B> {
+    /// Whether an action tried again is still of use.
+    async fn wanted(&self, a: &Action) -> bool {
+        let (tx, rx) = oneshot::channel();
+        let a = a.clone();
+        let q: Query = Box::new(move |s| {
+            let _ = tx.send(s.wanted(&a));
+        });
+        self.inbox.send(Request::Query(q)).is_ok() && rx.await.unwrap_or(false)
+    }
+
     /// Carry out an action after waiting `ms`, and hand the engine what came of it.
     fn launch(&self, a: Action, ms: u64) {
         let w = self.clone();
         tokio::spawn(async move {
             let mut stop = w.stop.clone();
-            if ms > 0 && !sleep_or_stop(&mut stop, ms).await {
+            if ms > 0 && !(sleep_or_stop(&mut stop, ms).await && w.wanted(&a).await) {
                 return;
             }
             let o = tokio::select! {

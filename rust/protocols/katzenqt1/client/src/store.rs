@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Component, Path, PathBuf};
 
 use pigeonhole_katzenqt1_engine::*;
@@ -322,11 +323,7 @@ impl Store {
 
     /// Where a file under the state directory is, refusing names that leave it.
     pub fn path(&self, name: &str) -> Result<PathBuf> {
-        let rel = Path::new(name);
-        if rel.components().any(|c| !matches!(c, Component::Normal(_))) {
-            return Err(e(format!("{name:?} is outside the state directory")));
-        }
-        Ok(self.dir.join(rel))
+        within(&self.dir, name).map_err(|_| e(format!("{name:?} is outside the state directory")))
     }
 
     /// Write a file and sync it and its directory, so that it is on disk before any state that
@@ -336,12 +333,23 @@ impl Store {
         let dir = p.parent().unwrap().to_path_buf();
         std::fs::create_dir_all(&dir).map_err(e)?;
         let tmp = dir.join(format!(".tmp-{}", rand::random::<u64>()));
-        let mut file = std::fs::File::create(&tmp).map_err(e)?;
-        file.write_all(&f.bytes).map_err(e)?;
-        if !self.opts.no_sync {
-            file.sync_all().map_err(e)?;
+        let written = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&tmp)
+            .and_then(|mut file| {
+                file.write_all(&f.bytes)?;
+                if !self.opts.no_sync {
+                    file.sync_all()?;
+                }
+                Ok(())
+            })
+            .and_then(|()| std::fs::rename(&tmp, &p));
+        if let Err(x) = written {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(e(x));
         }
-        std::fs::rename(&tmp, &p).map_err(e)?;
         if !self.opts.no_sync {
             sync_dir(&dir).map_err(e)?;
         }
@@ -453,15 +461,20 @@ pub struct StoreFiles(pub PathBuf);
 
 impl StoreFiles {
     fn path(&self, name: &str) -> std::io::Result<PathBuf> {
-        let rel = Path::new(name);
-        if rel.components().any(|c| !matches!(c, Component::Normal(_))) {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "outside the state directory",
-            ));
-        }
-        Ok(self.0.join(rel))
+        within(&self.0, name)
     }
+}
+
+/// The file `name` names under `dir`, which it may not leave.
+fn within(dir: &Path, name: &str) -> std::io::Result<PathBuf> {
+    let rel = Path::new(name);
+    if rel.components().any(|c| !matches!(c, Component::Normal(_))) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "outside the state directory",
+        ));
+    }
+    Ok(dir.join(rel))
 }
 
 impl Files for StoreFiles {

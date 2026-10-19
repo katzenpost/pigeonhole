@@ -190,6 +190,12 @@ pub fn chunk_count(n: usize, max: usize) -> usize {
     (n + (max - 2)) / (max - 1)
 }
 
+/// The most boxes of `max` bytes a substream is sent or fetched in: a message of `MAX_FILE + max`
+/// bytes, the most a sender cuts.
+pub fn max_chunks(max: usize) -> usize {
+    chunk_count(MAX_FILE + max, max)
+}
+
 /// The `i`th box of `blob`'s substream.
 pub fn substream_box(blob: &[u8], max: usize, i: usize) -> Vec<u8> {
     let size = max - 1;

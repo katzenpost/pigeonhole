@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -78,6 +79,16 @@ type scWorld struct {
 	onCommand func()
 	// restarts is how many times each member restarted.
 	restarts map[int]int
+	// failNext and clobberNext name, for a member, the kind of its next action to fail, or whose
+	// box to fill with other bytes first.
+	failNext, clobberNext map[int]string
+	// opened is the last reply to its voucher each member opened, by chat.
+	opened map[int]map[engine.ChatID]engine.Opened
+}
+
+// kindOf is an action's or an input's kind, as Rust names it.
+func kindOf(x any) string {
+	return strings.TrimPrefix(strings.TrimPrefix(fmt.Sprintf("%T", x), "engine."), "Do")
 }
 
 func (w *scWorld) who(name string) int {
@@ -92,6 +103,15 @@ func (w *scWorld) who(name string) int {
 
 func (w *scWorld) feed(i int, in engine.Input) {
 	m := w.members[i]
+	if o, ok := in.(engine.Opened); ok {
+		if w.opened == nil {
+			w.opened = map[int]map[engine.ChatID]engine.Opened{}
+		}
+		if w.opened[i] == nil {
+			w.opened[i] = map[engine.ChatID]engine.Opened{}
+		}
+		w.opened[i][o.Chat] = o
+	}
 	w.release(i, m.eng.Step(0, in))
 	for _, c := range m.eng.State.Chats {
 		if !w.skipSaveCheck && c.Group != nil && !savesWhole(c.Group) {
@@ -150,7 +170,18 @@ func (w *scWorld) act() bool {
 	w.queue = slices.Delete(w.queue, k, k+1)
 	x := &Executor{Backend: sim.Backend{World: w.sim}, Files: w.members[q.who].filesOf(),
 		Sleep: func(context.Context, int) error { return nil }}
-	o := x.Perform(context.Background(), q.a)
+	var o Outcome
+	switch kind := kindOf(q.a); {
+	case w.failNext[q.who] == kind:
+		delete(w.failNext, q.who)
+		o = done(engine.Failed{Chat: chatOf(q.a), What: describe(q.a) + " failed: injected"})
+	case w.clobberNext[q.who] == kind:
+		delete(w.clobberNext, q.who)
+		w.clobber(q.a)
+		fallthrough
+	default:
+		o = x.Perform(context.Background(), q.a)
+	}
 	if w.crash != nil {
 		if restart, lost := w.crash(q.who, q.a); restart {
 			if !lost && o.Input != nil && o.After == 0 && o.Retry == nil {
@@ -169,6 +200,23 @@ func (w *scWorld) act() bool {
 		w.feed(q.who, o.Input)
 	}
 	return true
+}
+
+// clobber fills the box a write is for with other bytes.
+func (w *scWorld) clobber(a engine.Action) {
+	var writeCap []byte
+	var index member.Index
+	switch a := a.(type) {
+	case engine.DoWrite:
+		writeCap, index = a.WriteCap, a.Index
+	case engine.DoWriteChunk:
+		writeCap, index = a.WriteCap, a.Index
+	default:
+		panic("not a write: " + kindOf(a))
+	}
+	if err := (sim.Backend{World: w.sim}).WriteBox(context.Background(), writeCap, []byte(index), []byte("clobbered")); err != nil {
+		panic(err)
+	}
 }
 
 // runTo lets the network run until stop on the logical clock.
@@ -198,7 +246,10 @@ func (w *scWorld) runTo(stop int) {
 		w.later, w.clock = rest, max(w.clock, due)
 		for _, l := range now {
 			if l.a != nil {
-				w.queue = append(w.queue, queued{l.who, l.a})
+				// As a client does, an action is tried again only while it is of use.
+				if w.members[l.who].eng.State.Wanted(l.a) {
+					w.queue = append(w.queue, queued{l.who, l.a})
+				}
 			} else {
 				w.feed(l.who, l.in)
 			}
@@ -366,6 +417,70 @@ func (w *scWorld) refused() []string {
 	return []string{strings.Join(names, " ")}
 }
 
+func (w *scWorld) pending(i int) []string {
+	var kinds []string
+	for _, q := range w.queue {
+		if q.who == i {
+			kinds = append(kinds, kindOf(q.a))
+		}
+	}
+	for _, l := range w.later {
+		switch {
+		case l.who != i:
+		case l.a != nil:
+			kinds = append(kinds, kindOf(l.a))
+		default:
+			kinds = append(kinds, kindOf(l.in))
+		}
+	}
+	if len(kinds) == 0 {
+		return []string{"none"}
+	}
+	slices.Sort(kinds)
+	return []string{strings.Join(kinds, " ")}
+}
+
+func (w *scWorld) filesHeld(i int) []string {
+	m := w.members[i]
+	var names []string
+	for name := range m.files {
+		names = append(names, name)
+	}
+	if len(names) == 0 {
+		return []string{"none"}
+	}
+	slices.Sort(names)
+	return names
+}
+
+// fileGot is how a member's copy of the file called name in group compares with what was sent.
+func (w *scWorld) fileGot(i int, group, name string) []string {
+	a := w.attachmentOf(i, group, name)
+	if a == nil {
+		return []string{"no such file"}
+	}
+	b, err := w.members[i].filesOf().Read(a.File)
+	switch {
+	case err != nil:
+		return []string{"not kept"}
+	case !bytes.Equal(b, bytesOf(a.Size, len(name))):
+		return []string{fmt.Sprintf("%d bytes, not as sent", len(b))}
+	}
+	return []string{fmt.Sprintf("%d bytes, as sent", len(b))}
+}
+
+// restartAny restarts member i: from disk if it keeps its state there, or else from the state it
+// holds, which is all saved.
+func (w *scWorld) restartAny(i int) {
+	if w.members[i].st != nil {
+		w.restartMember(i)
+		return
+	}
+	w.queue = slices.DeleteFunc(w.queue, func(q queued) bool { return q.who == i })
+	w.later = slices.DeleteFunc(w.later, func(l later) bool { return l.who == i })
+	w.release(i, w.members[i].eng.Resume(0))
+}
+
 func (w *scWorld) code(i int, group string) string {
 	if c := w.chatOf(i, group); c != nil && c.Joining != nil {
 		return c.Joining.Code
@@ -435,6 +550,55 @@ func (w *scWorld) command(words []string) ([]string, error) {
 		return w.jobs(w.who(words[1]), words[2]), nil
 	case words[0] == "refused" && n == 1:
 		return w.refused(), nil
+	case words[0] == "invite-code" && n == 4:
+		w.feed(w.who(words[1]), engine.Induct{Chat: engine.ChatID(words[2]), Code: words[3]})
+	case words[0] == "send-file" && n == 5:
+		size, _ := strconv.Atoi(words[4])
+		w.feed(w.who(words[1]), engine.SendFile{Chat: engine.ChatID(words[2]), Name: words[3], Bytes: bytesOf(size, len(words[3]))})
+	case words[0] == "file" && n == 4:
+		return w.fileGot(w.who(words[1]), words[2], words[3]), nil
+	case words[0] == "voucher-file" && n == 3:
+		i := w.who(words[1])
+		b, err := w.members[i].filesOf().Read("voucher-" + words[2] + ".txt")
+		switch {
+		case err != nil:
+			return []string{"none"}, nil
+		case string(b) != w.code(i, words[2])+"\n":
+			return []string{"not the code"}, nil
+		}
+		return []string{"the code"}, nil
+	case words[0] == "files" && n == 2:
+		return w.filesHeld(w.who(words[1])), nil
+	case words[0] == "pending" && n == 2:
+		return w.pending(w.who(words[1])), nil
+	case words[0] == "restart" && n == 2:
+		w.restartAny(w.who(words[1]))
+	case (words[0] == "fail-next" || words[0] == "clobber-next") && n == 3:
+		m := &w.failNext
+		if words[0] == "clobber-next" {
+			m = &w.clobberNext
+		}
+		if *m == nil {
+			*m = map[int]string{}
+		}
+		(*m)[w.who(words[1])] = words[2]
+	case words[0] == "reopen" && n == 3:
+		i := w.who(words[1])
+		o, ok := w.opened[i][engine.ChatID(words[2])]
+		if !ok {
+			return []string{"nothing to reopen"}, nil
+		}
+		w.feed(i, o)
+	case words[0] == "repeat" && n >= 3:
+		k, _ := strconv.Atoi(words[1])
+		var out []string
+		for range k {
+			var err error
+			if out, err = w.command(words[2:]); err != nil {
+				return nil, err
+			}
+		}
+		return out, nil
 	default:
 		return nil, fmt.Errorf("not a command: %s", strings.Join(words, " "))
 	}
@@ -482,6 +646,38 @@ func runScenarioIn(w *scWorld, script string) (string, *scWorld, error) {
 		}
 	}
 	return strings.Join(out, "\n") + "\n", w, nil
+}
+
+// TestEngineScenarios runs pigeonhole's own scenarios, which the Rust client runs too.
+func TestEngineScenarios(t *testing.T) {
+	files, _ := filepath.Glob("testdata/scenarios/*.txt")
+	if len(files) == 0 {
+		t.Fatal("no scenarios")
+	}
+	for _, f := range files {
+		name := filepath.Base(f)
+		script, _ := os.ReadFile(f)
+		got, unsaved, err := runScenario(string(script))
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+			continue
+		}
+		if len(unsaved) > 0 {
+			t.Errorf("%s: groups that do not save whole: %v", name, unsaved)
+		}
+		if out := os.Getenv("SCENARIO_OUT"); out != "" {
+			os.WriteFile(filepath.Join(out, name), []byte(got), 0o644)
+		}
+		if got != string(script) {
+			a, e := strings.Split(got, "\n"), strings.Split(string(script), "\n")
+			for i := range min(len(a), len(e)) {
+				if a[i] != e[i] {
+					t.Errorf("%s: line %d: expected %q, got %q", name, i+1, e[i], a[i])
+					break
+				}
+			}
+		}
+	}
 }
 
 func TestClientScenarios(t *testing.T) {

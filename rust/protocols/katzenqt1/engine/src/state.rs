@@ -1,6 +1,7 @@
 use indexmap::IndexMap;
 use pigeonhole_katzenqt1_member::{Group, Index, Key};
 
+use crate::Action;
 use crate::notice::Notice;
 
 /// Names a conversation for good; its name may change.
@@ -153,6 +154,38 @@ impl State {
 
     pub fn chat_named(&self, name: &str) -> Option<&Chat> {
         self.chats.iter().find(|c| c.name == name)
+    }
+
+    /// Whether an action tried again is still of use: its chat is still here and, for a
+    /// voucher's box, still waiting for it.
+    pub fn wanted(&self, a: &Action) -> bool {
+        let chat = match a {
+            Action::AwaitReply {
+                chat, secret_key, ..
+            } => {
+                return self
+                    .chat(chat)
+                    .and_then(|c| c.joining.as_ref())
+                    .is_some_and(|j| &j.secret_key == secret_key);
+            }
+            Action::ReadVoucher { chat, voucher } => {
+                return self
+                    .chat(chat)
+                    .and_then(|c| c.inducting.as_ref())
+                    .is_some_and(|i| i.payload.is_none() && &i.voucher == voucher);
+            }
+            Action::Write { chat, .. }
+            | Action::Read { chat, .. }
+            | Action::ScanRead { chat, .. }
+            | Action::Walk { chat, .. }
+            | Action::Derive { chat, .. }
+            | Action::Substream { chat, .. }
+            | Action::WriteChunk { chat, .. }
+            | Action::ChunkIndexes { chat, .. }
+            | Action::ReadChunk { chat, .. } => chat,
+            _ => return true,
+        };
+        self.chat(chat).is_some()
     }
 }
 

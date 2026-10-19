@@ -61,6 +61,8 @@ func (b Backend) NewKeypair(ctx context.Context) (transport.Keypair, error) {
 	return transport.Keypair{WriteCap: marshal(wc), ReadCap: marshal(rc), First: marshal(first)}, nil
 }
 
+// WriteBox writes a box. The same bytes again are the same box, as BACAP seals them, and replicas
+// take a box they hold again as written; only other bytes are ErrBoxAlreadyExists.
 func (b Backend) WriteBox(ctx context.Context, writeCap, index, plaintext []byte) error {
 	wc, err := bacap.NewWriteCapFromBytes(writeCap)
 	if err != nil {

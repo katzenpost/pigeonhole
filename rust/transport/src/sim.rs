@@ -30,6 +30,7 @@ pub struct State {
     /// Each write refused for its box holding other contents.
     pub refused: Vec<BoxName>,
     pub writes: usize,
+    pub reads: usize,
 }
 
 /// The replica every handle on it shares.
@@ -115,7 +116,8 @@ impl World {
     }
 
     fn read(&self, read_cap: &[u8], index: &[u8]) -> Read {
-        let s = self.0.lock().unwrap();
+        let mut s = self.0.lock().unwrap();
+        s.reads += 1;
         match s.boxes.get(&(read_cap[..32].to_vec(), index.to_vec())) {
             Some((e, b)) if e + 1 >= s.epoch => {
                 if b.is_empty() {

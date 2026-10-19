@@ -281,7 +281,7 @@ func (c *Client) launch(a engine.Action, ms int) {
 	c.work.Add(1)
 	go func() {
 		defer c.work.Done()
-		if ms > 0 && sleep(c.ctx, ms) != nil {
+		if ms > 0 && (sleep(c.ctx, ms) != nil || !c.wanted(a)) {
 			return
 		}
 		o := c.exec.Perform(c.ctx, a)
@@ -299,6 +299,12 @@ func (c *Client) launch(a engine.Action, ms int) {
 			c.post(o.Input)
 		}
 	}()
+}
+
+// wanted says whether an action tried again is still of use.
+func (c *Client) wanted(a engine.Action) bool {
+	ok := false
+	return c.query(func(s *engine.State) { ok = s.Wanted(a) }) == nil && ok
 }
 
 func (c *Client) post(in engine.Input) {

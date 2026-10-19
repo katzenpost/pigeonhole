@@ -75,6 +75,9 @@ func (e *Engine) say(c *Chat, l Line) int {
 	e.lineChanged(c, l.ID)
 	if len(c.Log) > MaxLog {
 		for _, d := range c.Log[:len(c.Log)-MaxLog] {
+			if d.Attachment != nil {
+				e.emit(DoDelete{d.Attachment.File})
+			}
 			e.lineDropped(c, d.ID)
 		}
 		c.Log = slices.Clone(c.Log[len(c.Log)-MaxLog:])
@@ -481,6 +484,7 @@ func readResult(o Outcome) (member.ReadResult, *member.Index) {
 	return member.ReadResult{Kind: member.ReadData, Message: messageOf(o.Plaintext)}, &next
 }
 
+// voucherFile holds the voucher code we minted to join group, for the user to copy whole.
 func voucherFile(group string) string { return "voucher-" + slug(group) + ".txt" }
 
 // VoucherCode is how a voucher is handed to a member of the group.
@@ -541,10 +545,11 @@ func (e *Engine) handle(in Input) {
 		code := VoucherCode(in.Minted.Voucher)
 		e.emit(DoAwaitReply{c.ID, in.Minted.SecretKey, in.Minted.ReadCap, in.Box1, c.WriteCap})
 		c.Joining = &Joining{Code: code, SecretKey: in.Minted.SecretKey, VoucherReadCap: in.Minted.ReadCap, Box1: in.Box1}
+		e.keep(voucherFile(c.Name), []byte(code+"\n"))
 		e.notice(c, VoucherMinted, code, c.Name, voucherFile(c.Name))
 	case Opened:
 		c := chat(in.Chat)
-		if c == nil {
+		if c == nil || c.Joining == nil || c.Joining.Code == "" || c.Group != nil {
 			return
 		}
 		g, who := joinedFrom(in.Opened)
@@ -571,7 +576,7 @@ func (e *Engine) handle(in Input) {
 		switch {
 		case c.Group == nil:
 			e.notice(c, NotJoinedYet)
-		case c.Inducting != nil:
+		case c.Inducting != nil && c.Inducting.Payload != nil:
 			e.notice(c, AlreadyAdding)
 		case err != nil:
 			e.notice(c, NotAVoucher)
@@ -582,7 +587,7 @@ func (e *Engine) handle(in Input) {
 		}
 	case JoinerPayload:
 		c := chat(in.Chat)
-		if c == nil {
+		if c == nil || c.Inducting == nil || c.Inducting.Payload != nil || !bytes.Equal(c.Inducting.Voucher, in.Voucher) {
 			return
 		}
 		if c.Group != nil {
@@ -809,10 +814,8 @@ func (e *Engine) handle(in Input) {
 		if c == nil {
 			return
 		}
+		// A chat still joining stays so, and joins on when resumed.
 		e.cancelHeld(c)
-		if c.Joining != nil && c.Joining.Code == "" {
-			c.Joining = nil
-		}
 		c.Inducting = nil
 		e.notice(c, ActionFailed, in.What)
 	}
@@ -894,7 +897,6 @@ func (e *Engine) readChunk(in ReadChunk) {
 	if f.at != in.Index {
 		return
 	}
-	max := e.MaxPlaintext
 	switch in.Outcome.Kind {
 	case transport.NotFound:
 		e.flight.reading[k] = true
@@ -915,7 +917,7 @@ func (e *Engine) readChunk(in ReadChunk) {
 	case tag == 'F':
 		blob, ok := wire.Assemble(parts)
 		e.finish(c, d, blob, ok)
-	case tag == 'C' && len(parts)*max <= wire.MaxFile+2*max && (d.Total == nil || len(parts) < *d.Total):
+	case tag == 'C' && len(parts) < wire.MaxChunks(e.MaxPlaintext) && (d.Total == nil || len(parts) < *d.Total):
 		e.flight.fetched[k] = fetched{at: in.Outcome.Next, parts: parts}
 	default:
 		e.finish(c, d, nil, false)
@@ -952,7 +954,7 @@ func (e *Engine) read(in Read) {
 			total = int(*ch.Total)
 			t = &total
 		}
-		if total*e.MaxPlaintext <= wire.MaxFile+2*e.MaxPlaintext {
+		if total <= wire.MaxChunks(e.MaxPlaintext) {
 			c.Downloads = append(c.Downloads, Download{Stream: in.Stream, Index: in.Index, Next: next, ReadCap: ch.Data, Total: t})
 			c.Cursors.Set(in.Stream, next)
 			return

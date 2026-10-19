@@ -110,6 +110,7 @@ fn attachment_file(c: &Chat, id: usize, now: i64, name: &str) -> String {
     format!("attachments/{}/{now}-{id}-{name}", slug(&c.name))
 }
 
+/// Holds the voucher code we minted to join `group`, for the user to copy whole.
 fn voucher_file(group: &str) -> String {
     format!("voucher-{}.txt", slug(group))
 }
@@ -183,14 +184,13 @@ impl Cx<'_> {
         self.dirty(c);
         self.line_changed(c, id);
         if c.log.len() > MAX_LOG {
-            let gone: Vec<usize> = c.log[..c.log.len() - MAX_LOG]
-                .iter()
-                .map(|l| l.id)
-                .collect();
-            for g in gone {
-                self.line_dropped(c, g);
+            let n = c.log.len() - MAX_LOG;
+            for l in c.log.drain(..n).collect::<Vec<_>>() {
+                if let Some(a) = l.attachment {
+                    self.emit(Action::Delete { file: a.file });
+                }
+                self.line_dropped(c, l.id);
             }
-            c.log.drain(..c.log.len() - MAX_LOG);
         }
         id
     }
@@ -780,7 +780,7 @@ impl Cx<'_> {
                         self.finish(c, d, blob);
                     }
                     Some(b'C')
-                        if parts.len() * max <= MAX_FILE + 2 * max
+                        if parts.len() < wire::max_chunks(max)
                             && d.total.is_none_or(|t| parts.len() < t) =>
                     {
                         self.flight.fetched.insert(k, (next, parts));
@@ -819,7 +819,7 @@ impl Cx<'_> {
         self.dirty(c);
         if let Chunk::Indirection { total, read_cap } = wire::unframe(&plaintext) {
             let t = total.map(|t| t as usize);
-            if t.unwrap_or(0) * self.max <= MAX_FILE + 2 * self.max {
+            if t.unwrap_or(0) <= wire::max_chunks(self.max) {
                 c.downloads.push(Download {
                     stream: stream.clone(),
                     index,
@@ -1168,10 +1168,14 @@ impl Engine {
                     box1,
                 });
                 let file = voucher_file(&c.name);
+                cx.keep(file.clone(), format!("{code}\n").into_bytes());
                 let name = c.name.clone();
                 cx.notice(c, NoticeKind::VoucherMinted, &[&code, &name, &file]);
             }
             Input::Opened { opened, .. } => {
+                if c.group.is_some() || c.joining.as_ref().is_none_or(|j| j.code.is_empty()) {
+                    return;
+                }
                 let Some((g, who)) = joined_from(&opened) else {
                     c.joining = None;
                     cx.notice(c, NoticeKind::ReplyUnreadable, &[]);
@@ -1193,7 +1197,7 @@ impl Engine {
                 let voucher = STANDARD.decode(&code);
                 if c.group.is_none() {
                     cx.notice(c, NoticeKind::NotJoinedYet, &[]);
-                } else if c.inducting.is_some() {
+                } else if c.inducting.as_ref().is_some_and(|i| i.payload.is_some()) {
                     cx.notice(c, NoticeKind::AlreadyAdding, &[]);
                 } else if let Ok(voucher) = voucher {
                     c.inducting = Some(Inducting {
@@ -1213,6 +1217,12 @@ impl Engine {
                 box1,
                 ..
             } => {
+                if c.inducting
+                    .as_ref()
+                    .is_none_or(|i| i.payload.is_some() || i.voucher != voucher)
+                {
+                    return;
+                }
                 if let Some(g) = &mut c.group {
                     let out = g.begin_induction();
                     cx.enqueue(c, out, None, None, None);
@@ -1455,10 +1465,8 @@ impl Engine {
                 cx.effects(c, es);
             }
             Input::Failed { what, .. } => {
+                // A chat still joining stays so, and joins on when resumed.
                 cx.cancel_held(c);
-                if c.joining.as_ref().is_some_and(|j| j.code.is_empty()) {
-                    c.joining = None;
-                }
                 c.inducting = None;
                 cx.notice(c, NoticeKind::ActionFailed, &[&what]);
             }

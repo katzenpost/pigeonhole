@@ -1,0 +1,21 @@
+# The largest file a member may send reaches the others whole, though its substream takes more
+# boxes than MaxFile/MaxPlaintext: each box carries one byte less than it holds.
+
+create alice g
+join bob g
+run
+invite alice g bob
+run
+send-file alice g big.bin 16777216
+run
+show bob g
+----
+— minting a voucher
+— give the voucher code to a member of the group (it is also in voucher-g.txt)
+— joined the group
+alice: [file big.bin, 16.0 MB]
+
+file bob g big.bin
+----
+16777216 bytes, as sent
+

@@ -1,0 +1,42 @@
+# Minting the voucher fails: the chat is still minting, and mints again when the client starts
+# again, keeping the code it then mints in voucher-g.txt.
+
+fail-next bob Mint
+join bob g
+run
+state bob g
+----
+not joined, minting
+
+show bob g
+----
+— minting a voucher
+— mint a voucher failed: injected
+
+restart bob
+run
+state bob g
+----
+not joined, awaiting a reply
+
+voucher-file bob g
+----
+the code
+
+create alice g
+run
+invite alice g bob
+run
+members bob g
+----
+alice
+
+send bob g hello
+run
+show alice g
+----
+— a new group: adding a member's voucher code adds them
+— reading the voucher
+— added ~bob: they now read everything said in this group
+bob: hello
+

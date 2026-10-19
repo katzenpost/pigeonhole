@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -36,6 +37,40 @@ func has(t *testing.T, c *Client, id engine.ChatID, text string) bool {
 		t.Fatal(err)
 	}
 	return slices.ContainsFunc(ls, func(l LineView) bool { return l.Notice == nil && l.Text == text })
+}
+
+// TestLeaveStopsReading leaves a group while reading for a voucher never published: the client
+// reads for it no more.
+func TestLeaveStopsReading(t *testing.T) {
+	w := sim.NewWorld()
+	var reads atomic.Int64
+	w.Hook = func(op string, _ []byte) error {
+		if op == "read" {
+			reads.Add(1)
+		}
+		return nil
+	}
+	alice := open(t, w, t.TempDir(), "alice")
+	defer alice.Close()
+	g, err := alice.Create("g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "alice's group", func() bool { v, _ := alice.Chat(g); return v.Joined })
+	if err := alice.Invite(g, engine.VoucherCode(make([]byte, 32))); err != nil {
+		t.Fatal(err)
+	}
+	before := reads.Load()
+	waitFor(t, "the voucher to be read for again", func() bool { return reads.Load() > before+1 })
+	if err := alice.Leave(g); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(time.Second)
+	left := reads.Load()
+	time.Sleep(2 * RetryMs * time.Millisecond)
+	if n := reads.Load(); n != left {
+		t.Fatalf("%d reads after leaving", n-left)
+	}
 }
 
 func TestClient(t *testing.T) {

@@ -9,6 +9,8 @@
 package engine
 
 import (
+	"bytes"
+
 	"github.com/katzenpost/pigeonhole/internal/ordmap"
 	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/member"
 )
@@ -160,6 +162,41 @@ func (s *State) ChatNamed(name string) *Chat {
 		}
 	}
 	return nil
+}
+
+// Wanted says whether an action tried again is still of use: its chat is still here and, for a
+// voucher's box, still waiting for it.
+func (s *State) Wanted(a Action) bool {
+	var id ChatID
+	switch a := a.(type) {
+	case DoAwaitReply:
+		c := s.Chat(a.Chat)
+		return c != nil && c.Joining != nil && bytes.Equal(c.Joining.SecretKey, a.SecretKey)
+	case DoReadVoucher:
+		c := s.Chat(a.Chat)
+		return c != nil && c.Inducting != nil && c.Inducting.Payload == nil && bytes.Equal(c.Inducting.Voucher, a.Voucher)
+	case DoWrite:
+		id = a.Chat
+	case DoRead:
+		id = a.Chat
+	case DoScanRead:
+		id = a.Chat
+	case DoWalk:
+		id = a.Chat
+	case DoDerive:
+		id = a.Chat
+	case DoSubstream:
+		id = a.Chat
+	case DoWriteChunk:
+		id = a.Chat
+	case DoChunkIndexes:
+		id = a.Chat
+	case DoReadChunk:
+		id = a.Chat
+	default:
+		return true
+	}
+	return s.Chat(id) != nil
 }
 
 func (c *Chat) fresh() int {
