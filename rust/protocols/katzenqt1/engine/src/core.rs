@@ -18,7 +18,7 @@ pub const WINDOW: usize = 8;
 /// How long to wait, in milliseconds, before reading a box that was not there, after `n` misses
 /// before.
 pub fn backoff(n: usize) -> u64 {
-    60000u64.min(2000 << n.min(5))
+    10000u64.min(2000 << n.min(3))
 }
 
 /// How a voucher is handed to a member of the group.

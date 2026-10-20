@@ -17,7 +17,7 @@ const Window = 8
 
 // Backoff is how long to wait, in milliseconds, before reading a box that was not there, after n
 // misses before.
-func Backoff(n int) int { return min(60000, 2000<<min(n, 5)) }
+func Backoff(n int) int { return min(10000, 2000<<min(n, 3)) }
 
 type Engine struct {
 	State        *State
