@@ -10,3 +10,4 @@ jobs:
           components: clippy
       - run: cd rust && cargo clippy --release -- -D warnings
       - run: mkdir -p "$RUNNER_TEMP/tmp" && cd rust && TMPDIR="$RUNNER_TEMP/tmp" cargo test --release
+      - run: cd rust && cargo clippy --release -p pigeonhole-examples --examples -- -D warnings

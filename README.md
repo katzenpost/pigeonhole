@@ -18,6 +18,8 @@ on disk. Every step's changes are saved, synced, before any of the work it asks 
 - `cmd/katzenqt1` (Go) and `rust/cmd/katzenqt1` (`katzenqt1-rs`): clients without a user
   interface, for scripts and interop tests; `cmd/pigeonhole-sim` serves an in-memory Pigeonhole.
 
+`examples/` has a minimal group chat in Go and in Rust, as an introduction to the client.
+
 Go is at the root, Rust in `rust/`. `testdata/` holds vectors shared with cryptlib, katzenqt and
 group_chat_client; `SOURCES` names the commits they were copied from.
 `protocols/katzenqt1/client/testdata/scenarios` holds this repository's own client scenarios,
