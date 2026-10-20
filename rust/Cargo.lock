@@ -614,6 +614,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pigeonhole-examples"
+version = "0.1.0"
+dependencies = [
+ "pigeonhole-katzenqt1-client",
+ "pigeonhole-katzenqt1-engine",
+ "pigeonhole-transport",
+ "pigeonhole-transport-thinclient",
+ "tokio",
+]
+
+[[package]]
 name = "pigeonhole-katzenqt1-cli"
 version = "0.1.0"
 dependencies = [

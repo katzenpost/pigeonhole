@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["protocols/katzenqt1/wire", "protocols/katzenqt1/member", "transport", "transport/thinclient", "protocols/katzenqt1/engine", "protocols/katzenqt1/client", "cmd/katzenqt1"]
+members = ["protocols/katzenqt1/wire", "protocols/katzenqt1/member", "transport", "transport/thinclient", "protocols/katzenqt1/engine", "protocols/katzenqt1/client", "cmd/katzenqt1", "../examples/rust"]
 
 [workspace.package]
 edition = "2024"

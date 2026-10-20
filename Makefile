@@ -69,6 +69,12 @@ rust-test:
 	mkdir -p $(TMPDIR)
 	cd rust && $(CARGO) test --release
 
+.PHONY: examples
+
+examples:
+	go vet ./examples/...
+	cd rust && $(CARGO) build --release -p pigeonhole-examples --examples
+
 # The Rust member against the same traces, and its own random runs against katzenqt and Lean.
 rust-conformance: replay-katzenqt
 	cd rust && TRACES=$(OUT)/katzenqt $(CARGO) test --release -p pigeonhole-katzenqt1-member --test replay
