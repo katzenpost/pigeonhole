@@ -67,19 +67,19 @@ CARGO ?= $(HOME)/.cargo/bin/cargo
 
 rust-test:
 	mkdir -p $(TMPDIR)
-	cd rust && $(CARGO) test --release
+	$(CARGO) test --release
 
 .PHONY: examples
 
 examples:
 	go vet ./examples/...
-	cd rust && $(CARGO) build --release -p pigeonhole-examples --examples
+	$(CARGO) build --release --examples
 
 # The Rust member against the same traces, and its own random runs against katzenqt and Lean.
 rust-conformance: replay-katzenqt
-	cd rust && TRACES=$(OUT)/katzenqt $(CARGO) test --release -p pigeonhole-katzenqt1-member --test replay
+	TRACES=$(OUT)/katzenqt $(CARGO) test --release --test katzenqt1_member_replay
 	rm -rf $(OUT)/rust && mkdir -p $(OUT)/rust
-	cd rust && RANDOM_RUNS=$(RUNS) RANDOM_OUT=$(OUT)/rust $(CARGO) test --release -p pigeonhole-katzenqt1-member --test sim random_scripts
+	RANDOM_RUNS=$(RUNS) RANDOM_OUT=$(OUT)/rust $(CARGO) test --release --test katzenqt1_member_sim random_scripts
 	cd $(KATZENQT) && PYTHONPATH=src $(PYTHON) $(CURDIR)/scripts/katzenqt_diff.py $(OUT)/rust
 	cd $(CRYPTLIB) && lake exe Cryptlib.Protocols.GroupComm.GroupChatKatzenqt1.replay $(OUT)/rust
 	TRACES=$(OUT)/rust go test -count=1 -run More ./protocols/katzenqt1/member/tracejson/
