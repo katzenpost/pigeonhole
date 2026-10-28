@@ -1,6 +1,6 @@
 package member
 
-import "github.com/katzenpost/pigeonhole_clients/internal/ordmap"
+import "github.com/katzenpost/pigeonhole_protocols/internal/ordmap"
 
 // The ledger is what this member has acknowledged, and what others have acknowledged of each
 // stream. An induction holds publishing back.

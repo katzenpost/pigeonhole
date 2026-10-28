@@ -6,7 +6,7 @@ members = ["secret", "protocols/katzenqt1/wire", "protocols/katzenqt1/member", "
 edition = "2024"
 rust-version = "1.88"
 license = "AGPL-3.0-only"
-repository = "https://github.com/katzenpost/pigeonhole_clients"
+repository = "https://github.com/katzenpost/pigeonhole_protocols"
 version = "0.1.0"
 
 [workspace.dependencies]

@@ -10,7 +10,7 @@ import (
 	"net/rpc"
 	"net/rpc/jsonrpc"
 
-	"github.com/katzenpost/pigeonhole_clients/transport"
+	"github.com/katzenpost/pigeonhole_protocols/transport"
 )
 
 // Args and Reply carry every call; each uses what it needs.

@@ -25,11 +25,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/client"
-	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/engine"
-	"github.com/katzenpost/pigeonhole_clients/transport"
-	"github.com/katzenpost/pigeonhole_clients/transport/remote"
-	"github.com/katzenpost/pigeonhole_clients/transport/thinclient"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/client"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/engine"
+	"github.com/katzenpost/pigeonhole_protocols/transport"
+	"github.com/katzenpost/pigeonhole_protocols/transport/remote"
+	"github.com/katzenpost/pigeonhole_protocols/transport/thinclient"
 )
 
 func main() {

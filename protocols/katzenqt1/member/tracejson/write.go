@@ -8,9 +8,9 @@ import (
 	"encoding/json"
 	"strconv"
 
-	"github.com/katzenpost/pigeonhole_clients/internal/ordmap"
-	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/member"
-	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/wire"
+	"github.com/katzenpost/pigeonhole_protocols/internal/ordmap"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/member"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/wire"
 )
 
 type obj = map[string]any

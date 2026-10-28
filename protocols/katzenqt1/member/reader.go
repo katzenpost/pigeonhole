@@ -3,7 +3,7 @@ package member
 import (
 	"slices"
 
-	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/wire"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/wire"
 )
 
 // A reader reads one member's stream in order, one box at a time. A scan rechecks boxes

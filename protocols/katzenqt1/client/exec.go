@@ -7,10 +7,10 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/engine"
-	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/member"
-	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/wire"
-	"github.com/katzenpost/pigeonhole_clients/transport"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/engine"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/member"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/wire"
+	"github.com/katzenpost/pigeonhole_protocols/transport"
 )
 
 // RetryMs is how long to wait before trying a failed write or read again.
