@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/engine"
-	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/wire"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/engine"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/wire"
 )
 
 func bytesOf(n, seed int) []byte {

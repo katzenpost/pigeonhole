@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/katzenpost/pigeonhole_clients/internal/ordmap"
-	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/engine"
-	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/member"
-	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/member/tracejson"
+	"github.com/katzenpost/pigeonhole_protocols/internal/ordmap"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/engine"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/member"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/member/tracejson"
 )
 
 // What is saved of a conversation, apart from its lines, and of a line, as JSON. Keys and

@@ -8,11 +8,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/engine"
-	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/member"
-	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/store"
-	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/wire"
-	"github.com/katzenpost/pigeonhole_clients/transport"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/engine"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/member"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/store"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/wire"
+	"github.com/katzenpost/pigeonhole_protocols/transport"
 )
 
 var (

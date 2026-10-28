@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/member"
-	"github.com/katzenpost/pigeonhole_clients/transport"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/member"
+	"github.com/katzenpost/pigeonhole_protocols/transport"
 )
 
 func TestReplicaRules(t *testing.T) {

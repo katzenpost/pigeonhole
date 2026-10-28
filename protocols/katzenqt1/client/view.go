@@ -4,8 +4,8 @@ import (
 	"encoding/base64"
 	"slices"
 
-	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/engine"
-	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/member"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/engine"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/member"
 )
 
 func decodeCode(code string) ([]byte, error) { return base64.StdEncoding.DecodeString(code) }

@@ -4,7 +4,7 @@ import (
 	"cmp"
 	"slices"
 
-	"github.com/katzenpost/pigeonhole_clients/internal/ordmap"
+	"github.com/katzenpost/pigeonhole_protocols/internal/ordmap"
 )
 
 // The Sent box holds the boxes a member wrote to its own stream: what it may still rewrite, and

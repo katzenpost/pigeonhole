@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/katzenpost/pigeonhole_clients/transport"
-	"github.com/katzenpost/pigeonhole_clients/transport/sim"
+	"github.com/katzenpost/pigeonhole_protocols/transport"
+	"github.com/katzenpost/pigeonhole_protocols/transport/sim"
 )
 
 func TestRemote(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"io"
 	"slices"
 
-	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/member"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/member"
 )
 
 // A trace line is one call on a member. Replay makes the same call on a Group and requires the
