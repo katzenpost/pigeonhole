@@ -15,12 +15,12 @@ on disk. Every step's changes are saved, synced, before any of the work it asks 
   - `client`: the client, over a transport.
 - `transport`: what a client asks of Pigeonhole; over the client daemon's thin client, in memory
   for tests, and served from one process to others (`remote`, JSON-RPC).
-- `cmd/katzenqt1` (Go) and `rust/cmd/katzenqt1` (`katzenqt1-rs`): clients without a user
+- `cmd/katzenqt1` (Go) and `src/bin/katzenqt1.rs` (`katzenqt1-rs`): clients without a user
   interface, for scripts and interop tests; `cmd/pigeonhole-sim` serves an in-memory Pigeonhole.
 
 `examples/` has a minimal group chat in Go and in Rust, as an introduction to the client.
 
-Go is at the root, Rust in `rust/`. `testdata/` holds vectors shared with cryptlib, katzenqt and
+Go is at the root; Rust is one crate, `pigeonhole_protocols`, with `Cargo.toml` at the top and its source in `src/`. `testdata/` holds vectors shared with cryptlib, katzenqt and
 group_chat_client; `SOURCES` names the commits they were copied from.
 `protocols/katzenqt1/client/testdata/scenarios` holds this repository's own client scenarios,
 which the Go and Rust clients both run.
@@ -37,5 +37,5 @@ make interop DAEMON=@katzenpost   # with katzenqt-headless
 ```
 
 The cross-checks need checkouts of katzenqt (`KATZENQT`) and cryptlib (`CRYPTLIB`). Setting
-`RUST_BIN` to `rust/target/release/katzenqt1-rs` runs the process tests with Go and Rust clients
+`RUST_BIN` to `target/release/katzenqt1-rs` runs the process tests with Go and Rust clients
 together.
