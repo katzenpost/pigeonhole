@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/engine"
+	"github.com/katzenpost/pigeonhole/transport"
 	"github.com/katzenpost/pigeonhole/transport/sim"
 )
 
@@ -164,4 +165,56 @@ func TestClient(t *testing.T) {
 	if len(w.Refused) > 0 {
 		t.Fatalf("refused: %v", w.Refused)
 	}
+}
+
+// flaky is a Pigeonhole whose next failing reads fail, as reads over the mixnet sometimes do.
+type flaky struct {
+	sim.Backend
+	failing *atomic.Int64
+}
+
+func (f flaky) ReadBox(ctx context.Context, readCap, index []byte) (transport.Read, error) {
+	if f.failing.Add(-1) >= 0 {
+		return transport.Read{}, errors.New("read timed out")
+	}
+	return f.Backend.ReadBox(ctx, readCap, index)
+}
+
+// TestVoucherReadsThatFailAreRetried: a joiner whose reads of the voucher's reply fail for a
+// while still joins once they succeed; so does an introducer whose reads of the voucher fail.
+func TestVoucherReadsThatFailAreRetried(t *testing.T) {
+	w := sim.NewWorld()
+	var aliceFailing, bobFailing atomic.Int64
+	openFlaky := func(name string, failing *atomic.Int64) *Client {
+		c, err := Open(context.Background(), Config{StateDir: t.TempDir(), Name: name,
+			Backend: flaky{sim.Backend{World: w}, failing}, EpochPoll: time.Second})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	alice, bob := openFlaky("alice", &aliceFailing), openFlaky("bob", &bobFailing)
+	defer alice.Close()
+	defer bob.Close()
+	g, err := alice.Create("g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bg, err := bob.Join("g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var code string
+	waitFor(t, "a voucher code and alice's group", func() bool {
+		v, _ := bob.Chat(bg)
+		a, _ := alice.Chat(g)
+		code = v.Code
+		return code != "" && a.Joined
+	})
+	aliceFailing.Store(3)
+	bobFailing.Store(3)
+	if err := alice.Invite(g, code); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "bob to join", func() bool { v, _ := bob.Chat(bg); return v.Joined })
 }

@@ -235,8 +235,10 @@ impl<B: Backend, F: Files> Executor<B, F> {
                 voucher_read_cap,
                 box1,
                 write_cap,
-            } => match b.read_box(&voucher_read_cap, &box1).await? {
-                Read::NotFound => {
+            } => match b.read_box(&voucher_read_cap, &box1).await {
+                // A read that fails is tried again, as a box not yet written is: the reply may
+                // come at any time, and only reading it lets the joiner in.
+                Ok(Read::NotFound) | Err(_) => {
                     return Ok(Outcome::Retry(
                         Action::AwaitReply {
                             chat,
@@ -248,30 +250,34 @@ impl<B: Backend, F: Files> Executor<B, F> {
                         RETRY_MS,
                     ));
                 }
-                Read::Tombstone => Input::Failed {
+                Ok(Read::Tombstone) => Input::Failed {
                     chat,
                     what: "the voucher's reply was withdrawn".into(),
                 },
-                Read::Data(sealed) => Input::Opened {
+                Ok(Read::Data(sealed)) => Input::Opened {
                     chat,
                     opened: b.voucher_open(&secret_key, &sealed, &write_cap).await?,
                 },
             },
             Action::ReadVoucher { chat, voucher } => {
-                let (wc, rc) = b.voucher_derive_stream(&voucher).await?;
+                let retry = Outcome::Retry(
+                    Action::ReadVoucher {
+                        chat: chat.clone(),
+                        voucher: voucher.clone(),
+                    },
+                    RETRY_MS,
+                );
+                let Ok((wc, rc)) = b.voucher_derive_stream(&voucher).await else {
+                    return Ok(retry);
+                };
                 let box0 = wire::start_of(&rc).to_vec();
-                match b.read_box(&rc, &box0).await? {
-                    Read::NotFound => {
-                        return Ok(Outcome::Retry(
-                            Action::ReadVoucher { chat, voucher },
-                            RETRY_MS,
-                        ));
-                    }
-                    Read::Tombstone => Input::Failed {
+                match b.read_box(&rc, &box0).await {
+                    Ok(Read::NotFound) | Err(_) => return Ok(retry),
+                    Ok(Read::Tombstone) => Input::Failed {
                         chat,
                         what: "that voucher was withdrawn".into(),
                     },
-                    Read::Data(payload) => Input::JoinerPayload {
+                    Ok(Read::Data(payload)) => Input::JoinerPayload {
                         chat,
                         voucher,
                         voucher_write_cap: wc,
