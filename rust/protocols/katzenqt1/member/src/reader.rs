@@ -2,6 +2,7 @@
 //! previously stepped past and may jump ahead to a box another member acknowledged, keeping the
 //! boxes it skips. A reader acknowledges the end of the unbroken run it has read ([`Reader::run`]).
 
+use crate::Secret;
 use crate::{Effect, Index, Key, Message, ReadResult, counter};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -31,7 +32,7 @@ pub struct Lost {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Reader {
     pub stream: Key,
-    pub read_cap: Vec<u8>,
+    pub read_cap: Secret,
     /// The index of the next box to read.
     pub next: Index,
     /// The last box read in order, data or tombstone.
@@ -51,7 +52,7 @@ impl Reader {
     pub(crate) fn new(read_cap: Vec<u8>, next: Index) -> Reader {
         Reader {
             stream: crate::key_of(&read_cap),
-            read_cap,
+            read_cap: read_cap.into(),
             next,
             last: None,
             passed: 0,

@@ -9,6 +9,7 @@ use std::path::{Component, Path, PathBuf};
 
 use pigeonhole_katzenqt1_engine::*;
 use pigeonhole_katzenqt1_member::trace;
+use pigeonhole_transport::Secret;
 use redb::{Database, Durability, ReadableTable, TableDefinition};
 use serde_json::{Value, json};
 
@@ -55,8 +56,8 @@ fn h(b: &[u8]) -> Value {
     Value::String(hex::encode(b))
 }
 
-fn oh(b: &Option<Vec<u8>>) -> Value {
-    b.as_ref().map_or(Value::Null, |b| h(b))
+fn oh<B: AsRef<[u8]>>(b: &Option<B>) -> Value {
+    b.as_ref().map_or(Value::Null, |b| h(b.as_ref()))
 }
 
 fn chat_json(c: &Chat) -> Value {
@@ -92,6 +93,14 @@ fn line_json(l: &Line) -> Value {
 
 fn bytes(j: &Value) -> Result<Vec<u8>> {
     hex::decode(j.as_str().ok_or_else(|| e("not a string"))?).map_err(e)
+}
+
+fn secret(j: &Value) -> Result<Secret> {
+    bytes(j).map(Secret::from)
+}
+
+fn opt_secret(j: &Value) -> Result<Option<Secret>> {
+    Ok(opt_bytes(j)?.map(Secret::from))
 }
 
 fn opt_bytes(j: &Value) -> Result<Option<Vec<u8>>> {
@@ -130,7 +139,7 @@ fn chat_of(j: &Value) -> Result<Chat> {
     let mut c = Chat {
         id: text(&j["id"])?,
         name: text(&j["name"])?,
-        write_cap: bytes(&j["write_cap"])?,
+        write_cap: secret(&j["write_cap"])?,
         next_write: bytes(&j["next_write"])?,
         next_id: num(&j["next_id"])?,
         ..Chat::default()
@@ -159,7 +168,7 @@ fn chat_of(j: &Value) -> Result<Chat> {
                     file: text(&u["file"])?,
                     box_size: num(&u["box_size"])?,
                     total: num(&u["total"])?,
-                    write_cap: bytes(&u["write_cap"])?,
+                    write_cap: secret(&u["write_cap"])?,
                     sent: num(&u["sent"])?,
                     next: bytes(&u["next"])?,
                 })
@@ -170,8 +179,8 @@ fn chat_of(j: &Value) -> Result<Chat> {
     if !jn.is_null() {
         c.joining = Some(Joining {
             code: text(&jn["code"])?,
-            secret_key: bytes(&jn["secret_key"])?,
-            voucher_read_cap: bytes(&jn["voucher_read_cap"])?,
+            secret_key: secret(&jn["secret_key"])?,
+            voucher_read_cap: secret(&jn["voucher_read_cap"])?,
             box1: bytes(&jn["box1"])?,
         });
     }
@@ -179,9 +188,9 @@ fn chat_of(j: &Value) -> Result<Chat> {
     if !i.is_null() {
         let s = &i["sealed"];
         c.inducting = Some(Inducting {
-            voucher: bytes(&i["voucher"])?,
-            payload: opt_bytes(&i["payload"])?,
-            voucher_write_cap: bytes(&i["voucher_write_cap"])?,
+            voucher: secret(&i["voucher"])?,
+            payload: opt_secret(&i["payload"])?,
+            voucher_write_cap: secret(&i["voucher_write_cap"])?,
             box1: bytes(&i["box1"])?,
             sealing: i["sealing"].as_bool().unwrap_or(false),
             sealed: if s.is_null() {
@@ -189,7 +198,7 @@ fn chat_of(j: &Value) -> Result<Chat> {
             } else {
                 Some(Sealed {
                     name: text(&s["name"])?,
-                    mutated_read_cap: bytes(&s["mutated_read_cap"])?,
+                    mutated_read_cap: secret(&s["mutated_read_cap"])?,
                     reply: bytes(&s["reply"])?,
                 })
             },
@@ -200,7 +209,7 @@ fn chat_of(j: &Value) -> Result<Chat> {
             stream: bytes(&d["stream"])?,
             index: bytes(&d["index"])?,
             next: bytes(&d["next"])?,
-            read_cap: bytes(&d["read_cap"])?,
+            read_cap: secret(&d["read_cap"])?,
             total: opt_num(&d["total"])?,
         });
     }

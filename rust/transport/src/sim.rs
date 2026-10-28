@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use pigeonhole_katzenqt1_member::{hkdf, next_index};
 use rand::RngCore;
 
-use crate::{Backend, Error, Inducted, Keypair, Minted, Opened, Read, Result};
+use crate::{Backend, Error, Inducted, Keypair, Minted, Opened, Read, Result, Secret};
 
 /// A box: its stream's key and its Idx64.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -63,8 +63,8 @@ pub fn keypair_from_seed(seed: &[u8; 32], index_seed: &[u8; 48]) -> Keypair {
     let first = next_index(&index).unwrap();
     let read_cap = [pk.as_slice(), &first].concat();
     Keypair {
-        write_cap: [seed.as_slice(), &read_cap].concat(),
-        read_cap,
+        write_cap: [seed.as_slice(), &read_cap].concat().into(),
+        read_cap: read_cap.into(),
         first,
     }
 }
@@ -175,15 +175,15 @@ impl Backend for World {
         let kp = voucher_stream(&v);
         let payload = [name.as_bytes(), &[0], read_cap_of(write_cap)?].concat();
         Ok(Minted {
-            voucher: v.clone(),
-            payload,
+            voucher: v.clone().into(),
+            payload: payload.into(),
             write_cap: kp.write_cap,
             read_cap: kp.read_cap,
-            secret_key: v,
+            secret_key: v.into(),
         })
     }
 
-    async fn voucher_derive_stream(&self, voucher: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
+    async fn voucher_derive_stream(&self, voucher: &[u8]) -> Result<(Secret, Secret)> {
         let kp = voucher_stream(voucher);
         Ok((kp.write_cap, kp.read_cap))
     }
@@ -200,7 +200,7 @@ impl Backend for World {
             .ok_or_else(|| Error::Other("sim: not a voucher payload".into()))?;
         Ok(Inducted {
             name: String::from_utf8_lossy(&payload[..i]).into(),
-            mutated_read_cap: payload[i + 1..].to_vec(),
+            mutated_read_cap: payload[i + 1..].into(),
             sealed_reply: who_reply.to_vec(),
         })
     }
@@ -212,8 +212,8 @@ impl Backend for World {
         write_cap: &[u8],
     ) -> Result<Opened> {
         Ok(Opened {
-            who_reply: sealed_reply.to_vec(),
-            mutated_write_cap: write_cap.to_vec(),
+            who_reply: sealed_reply.into(),
+            mutated_write_cap: write_cap.into(),
         })
     }
 }
@@ -282,6 +282,6 @@ mod tests {
             .voucher_open(&m.secret_key, &i.sealed_reply, &joiner.write_cap)
             .await
             .unwrap();
-        assert_eq!(o.who_reply, b"reply");
+        assert_eq!(&*o.who_reply, b"reply");
     }
 }

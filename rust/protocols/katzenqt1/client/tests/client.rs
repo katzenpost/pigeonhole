@@ -187,7 +187,10 @@ impl Backend for Flaky {
     async fn voucher_mint(&self, w: &[u8], n: &str) -> transport::Result<transport::Minted> {
         self.world.voucher_mint(w, n).await
     }
-    async fn voucher_derive_stream(&self, v: &[u8]) -> transport::Result<(Vec<u8>, Vec<u8>)> {
+    async fn voucher_derive_stream(
+        &self,
+        v: &[u8],
+    ) -> transport::Result<(transport::Secret, transport::Secret)> {
         self.world.voucher_derive_stream(v).await
     }
     async fn voucher_induct(

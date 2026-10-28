@@ -3,6 +3,7 @@
 
 use indexmap::IndexMap;
 
+use crate::Secret;
 use crate::{Index, Key};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -16,7 +17,7 @@ pub enum Induction {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Invitee {
     pub name: String,
-    pub read_cap: Vec<u8>,
+    pub read_cap: Secret,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

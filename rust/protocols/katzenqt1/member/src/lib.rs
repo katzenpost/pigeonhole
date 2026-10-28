@@ -16,6 +16,7 @@ mod walk;
 pub use bacap::{hkdf, next_index};
 pub use group::{AckedRun, Group, NumberAt, Outgoing, POOL_SIZE, Pending, ReceivedAt};
 pub use ledger::{Induction, Invitee, Ledger};
+pub use pigeonhole_secret::Secret;
 pub use reader::{Kept, Lost, Mode, Reader};
 pub use rosters::{Entry, KnownEntry, Roster, Rosters, Started};
 pub use sent_box::{Record, Retention, SentBox};
@@ -95,11 +96,11 @@ pub enum Event {
     },
     Invite {
         name: String,
-        read_cap: Vec<u8>,
+        read_cap: Secret,
     },
     Introduce {
         name: String,
-        read_cap: Vec<u8>,
+        read_cap: Secret,
     },
     Remove {
         member: Key,
@@ -120,7 +121,7 @@ pub enum Effect {
     },
     ReadBox {
         stream: Key,
-        read_cap: Vec<u8>,
+        read_cap: Secret,
         index: Index,
         recheck: bool,
     },
@@ -145,7 +146,7 @@ pub enum Effect {
         index: Index,
     },
     SendJoinReply {
-        to: Vec<u8>,
+        to: Secret,
         reply: JoinReply,
     },
 }

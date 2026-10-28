@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["protocols/katzenqt1/wire", "protocols/katzenqt1/member", "transport", "transport/thinclient", "protocols/katzenqt1/engine", "protocols/katzenqt1/client", "cmd/katzenqt1", "../examples/rust"]
+members = ["secret", "protocols/katzenqt1/wire", "protocols/katzenqt1/member", "transport", "transport/thinclient", "protocols/katzenqt1/engine", "protocols/katzenqt1/client", "cmd/katzenqt1", "../examples/rust"]
 
 [workspace.package]
 edition = "2024"
@@ -10,6 +10,7 @@ repository = "https://github.com/katzenpost/pigeonhole_clients"
 version = "0.1.0"
 
 [workspace.dependencies]
+pigeonhole-secret = { path = "secret", version = "0.1.0" }
 pigeonhole-katzenqt1-wire = { path = "protocols/katzenqt1/wire", version = "0.1.0" }
 pigeonhole-katzenqt1-member = { path = "protocols/katzenqt1/member", version = "0.1.0" }
 pigeonhole-transport = { path = "transport", version = "0.1.0" }

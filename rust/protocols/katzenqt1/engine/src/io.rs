@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use pigeonhole_katzenqt1_member::{Index, Key};
-use pigeonhole_transport::{Inducted, Keypair, Minted, Opened};
+use pigeonhole_transport::{Inducted, Keypair, Minted, Opened, Secret};
 
 use crate::ChatId;
 
@@ -116,9 +116,9 @@ pub enum Input {
     },
     JoinerPayload {
         chat: ChatId,
-        voucher: Vec<u8>,
-        voucher_write_cap: Vec<u8>,
-        payload: Vec<u8>,
+        voucher: Secret,
+        voucher_write_cap: Secret,
+        payload: Secret,
         box1: Index,
     },
     SealedReply {
@@ -176,7 +176,7 @@ pub enum Action {
     Write {
         chat: ChatId,
         job: usize,
-        write_cap: Vec<u8>,
+        write_cap: Secret,
         index: Index,
         box_: Vec<u8>,
     },
@@ -184,7 +184,7 @@ pub enum Action {
     Read {
         chat: ChatId,
         stream: Key,
-        read_cap: Vec<u8>,
+        read_cap: Secret,
         index: Index,
     },
     /// Send Wake after `ms` milliseconds.
@@ -193,7 +193,7 @@ pub enum Action {
     ScanRead {
         chat: ChatId,
         stream: Key,
-        read_cap: Vec<u8>,
+        read_cap: Secret,
         index: Index,
     },
     /// Walked.
@@ -214,30 +214,30 @@ pub enum Action {
     /// Mint a voucher and publish its box 0: Minted.
     Mint {
         chat: ChatId,
-        write_cap: Vec<u8>,
+        write_cap: Secret,
         name: String,
     },
     /// Wait for the reply in box 1 and open it: Opened.
     AwaitReply {
         chat: ChatId,
-        secret_key: Vec<u8>,
-        voucher_read_cap: Vec<u8>,
+        secret_key: Secret,
+        voucher_read_cap: Secret,
         box1: Index,
-        write_cap: Vec<u8>,
+        write_cap: Secret,
     },
     /// Read a voucher's box 0: JoinerPayload.
-    ReadVoucher { chat: ChatId, voucher: Vec<u8> },
+    ReadVoucher { chat: ChatId, voucher: Secret },
     /// Seal the reply to a voucher: SealedReply.
     Seal {
         chat: ChatId,
-        voucher: Vec<u8>,
-        payload: Vec<u8>,
-        who_reply: Vec<u8>,
+        voucher: Secret,
+        payload: Secret,
+        who_reply: Secret,
     },
     /// Write the sealed reply to box 1, retrying until it is written: Published.
     Publish {
         chat: ChatId,
-        voucher_write_cap: Vec<u8>,
+        voucher_write_cap: Secret,
         box1: Index,
         reply: Vec<u8>,
     },
@@ -256,7 +256,7 @@ pub enum Action {
         chat: ChatId,
         job: usize,
         n: usize,
-        write_cap: Vec<u8>,
+        write_cap: Secret,
         index: Index,
         box_: Vec<u8>,
     },
@@ -271,7 +271,7 @@ pub enum Action {
     ReadChunk {
         chat: ChatId,
         stream: Key,
-        read_cap: Vec<u8>,
+        read_cap: Secret,
         index: Index,
     },
 }

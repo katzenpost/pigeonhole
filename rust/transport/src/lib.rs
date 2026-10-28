@@ -2,6 +2,7 @@
 //! a new member joins through. Caps and indexes are BACAP's binary forms; a client steps from one
 //! index to the next itself, by BACAP.
 
+pub use pigeonhole_secret::Secret;
 use std::future::Future;
 
 pub mod remote;
@@ -42,32 +43,34 @@ pub enum Read {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Keypair {
-    pub write_cap: Vec<u8>,
-    pub read_cap: Vec<u8>,
+    pub write_cap: Secret,
+    pub read_cap: Secret,
     /// The index the stream starts at.
     pub first: Vec<u8>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Minted {
-    pub voucher: Vec<u8>,
-    pub payload: Vec<u8>,
-    pub write_cap: Vec<u8>,
-    pub read_cap: Vec<u8>,
-    pub secret_key: Vec<u8>,
+    pub voucher: Secret,
+    /// Our name and read cap, for the member who adds us.
+    pub payload: Secret,
+    pub write_cap: Secret,
+    pub read_cap: Secret,
+    pub secret_key: Secret,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Inducted {
     pub name: String,
-    pub mutated_read_cap: Vec<u8>,
+    pub mutated_read_cap: Secret,
     pub sealed_reply: Vec<u8>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Opened {
-    pub who_reply: Vec<u8>,
-    pub mutated_write_cap: Vec<u8>,
+    /// The read caps of the members we are to read.
+    pub who_reply: Secret,
+    pub mutated_write_cap: Secret,
 }
 
 /// Pigeonhole's storage, and contact vouchers: a joiner mints one for its stream, an existing
@@ -98,7 +101,7 @@ pub trait Backend: Send + Sync + 'static {
     fn voucher_derive_stream(
         &self,
         voucher: &[u8],
-    ) -> impl Future<Output = Result<(Vec<u8>, Vec<u8>)>> + Send;
+    ) -> impl Future<Output = Result<(Secret, Secret)>> + Send;
     fn voucher_induct(
         &self,
         voucher: &[u8],
@@ -144,7 +147,7 @@ impl<B: Backend> Backend for Arc<B> {
     fn voucher_derive_stream(
         &self,
         voucher: &[u8],
-    ) -> impl Future<Output = Result<(Vec<u8>, Vec<u8>)>> + Send {
+    ) -> impl Future<Output = Result<(Secret, Secret)>> + Send {
         (**self).voucher_derive_stream(voucher)
     }
     fn voucher_induct(

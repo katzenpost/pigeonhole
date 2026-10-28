@@ -281,7 +281,7 @@ impl<B: Backend, F: Files> Executor<B, F> {
                         chat,
                         voucher,
                         voucher_write_cap: wc,
-                        payload,
+                        payload: payload.into(),
                         box1: next(&box0),
                     },
                 }
