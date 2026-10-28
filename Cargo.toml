@@ -1,0 +1,36 @@
+[package]
+name = "pigeonhole_protocols"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+authors = ["David Stainton"]
+homepage = "https://katzenpost.network"
+description = "Protocols over Katzenpost's Pigeonhole storage: group chat, and services with their clients"
+documentation = "https://docs.rs/pigeonhole_protocols/latest/pigeonhole_protocols/"
+repository = "https://github.com/katzenpost/pigeonhole_protocols"
+license = "AGPL-3.0-only"
+readme = "README_rust.md"
+keywords = ["katzenpost", "pigeonhole", "mixnet", "group-chat"]
+include = ["/src/**", "/README_rust.md", "/LICENSE"]
+
+[dependencies]
+katzenpost_thin_client = "0.0.25"
+base64 = "0.22"
+blake2 = "0.10"
+ed25519-dalek = "2"
+hex = "0.4"
+indexmap = "2"
+rand = "0.8"
+redb = "2"
+serde_cbor = "0.11"
+serde_json = { version = "1", features = ["arbitrary_precision"] }
+sha2 = "0.10"
+sha3 = "0.10"
+tokio = { version = "1", features = ["full"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[[bin]]
+name = "katzenqt1-rs"
+path = "src/bin/katzenqt1.rs"
