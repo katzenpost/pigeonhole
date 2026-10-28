@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/katzenpost/pigeonhole/transport"
+	"github.com/katzenpost/pigeonhole_clients/transport"
 )
 
 // TestLiveRewrite writes a box over the client daemon at $DAEMON, then again: the same bytes

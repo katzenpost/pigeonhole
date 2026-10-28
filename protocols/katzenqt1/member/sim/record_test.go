@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/member"
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/member/tracejson"
+	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/member"
+	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/member/tracejson"
 )
 
 // recordScenario runs a scenario, returning the trace of every call made on its members.

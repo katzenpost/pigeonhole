@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/engine"
-	"github.com/katzenpost/pigeonhole/transport/sim"
+	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/engine"
+	"github.com/katzenpost/pigeonhole_clients/transport/sim"
 )
 
 // Members chatting over the in-memory Pigeonhole, as group_chat_client's core tests do.

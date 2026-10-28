@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/member"
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/wire"
+	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/member"
+	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/wire"
 )
 
 // Parse decodes a trace line into the generic form these functions read.

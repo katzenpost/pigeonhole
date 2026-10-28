@@ -8,8 +8,8 @@ import (
 	"net"
 	"os"
 
-	"github.com/katzenpost/pigeonhole/transport/remote"
-	"github.com/katzenpost/pigeonhole/transport/sim"
+	"github.com/katzenpost/pigeonhole_clients/transport/remote"
+	"github.com/katzenpost/pigeonhole_clients/transport/sim"
 )
 
 func main() {

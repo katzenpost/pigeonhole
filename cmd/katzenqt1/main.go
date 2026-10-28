@@ -21,11 +21,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/client"
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/engine"
-	"github.com/katzenpost/pigeonhole/transport"
-	"github.com/katzenpost/pigeonhole/transport/remote"
-	"github.com/katzenpost/pigeonhole/transport/thinclient"
+	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/client"
+	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/engine"
+	"github.com/katzenpost/pigeonhole_clients/transport"
+	"github.com/katzenpost/pigeonhole_clients/transport/remote"
+	"github.com/katzenpost/pigeonhole_clients/transport/thinclient"
 )
 
 var out sync.Mutex

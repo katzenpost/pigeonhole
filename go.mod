@@ -1,4 +1,4 @@
-module github.com/katzenpost/pigeonhole
+module github.com/katzenpost/pigeonhole_clients
 
 go 1.26.9
 

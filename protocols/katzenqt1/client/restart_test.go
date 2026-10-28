@@ -6,8 +6,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/engine"
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/store"
+	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/engine"
+	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/store"
 )
 
 // onDisk keeps every member's state on disk.
