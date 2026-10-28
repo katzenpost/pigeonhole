@@ -3,13 +3,20 @@
 //! different one is refused, and a tombstone is always stored. A write cap here is a signing seed,
 //! then the read cap: its public key and the stream's first index.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use crate::protocols::katzenqt1::member::{hkdf, next_index};
 use rand::RngCore;
 
-use crate::transport::{Backend, Error, Inducted, Keypair, Minted, Opened, Read, Result, Secret};
+use crate::transport::{
+    Backend, Error, Inducted, Keypair, Minted, Opened, Read, Result, Secret, ServiceNode,
+};
+
+/// A mixnet service: it takes a request's payload and returns the reply.
+pub type Handler = Arc<dyn Fn(Vec<u8>) -> Pin<Box<dyn Future<Output = Vec<u8>> + Send>> + Send + Sync>;
 
 /// A box: its stream's key and its Idx64.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -31,6 +38,8 @@ pub struct State {
     pub refused: Vec<BoxName>,
     pub writes: usize,
     pub reads: usize,
+    handlers: HashMap<([u8; 32], Vec<u8>), Handler>,
+    services: HashMap<String, Vec<ServiceNode>>,
 }
 
 /// The replica every handle on it shares.
@@ -77,6 +86,24 @@ fn read_cap_of(write_cap: &[u8]) -> Result<&[u8]> {
 }
 
 impl World {
+    /// Adds a mixnet service, `capability`, at `endpoint` on the node `node`.
+    pub fn add_service(
+        &self,
+        capability: &str,
+        node: [u8; 32],
+        endpoint: &str,
+        params: BTreeMap<String, serde_cbor::Value>,
+        handler: Handler,
+    ) {
+        let mut s = self.0.lock().unwrap();
+        s.handlers.insert((node, endpoint.as_bytes().to_vec()), handler);
+        s.services.entry(capability.into()).or_default().push(ServiceNode {
+            node_id_hash: node,
+            endpoint: endpoint.as_bytes().to_vec(),
+            params,
+        });
+    }
+
     pub fn set_epoch(&self, e: u64) {
         self.0.lock().unwrap().epoch = e;
     }
@@ -215,6 +242,19 @@ impl Backend for World {
             who_reply: sealed_reply.into(),
             mutated_write_cap: write_cap.into(),
         })
+    }
+
+    async fn request(&self, node: &[u8; 32], endpoint: &[u8], payload: &[u8]) -> Result<Vec<u8>> {
+        let handler = self.0.lock().unwrap().handlers.get(&(*node, endpoint.to_vec())).cloned();
+        match handler {
+            Some(h) => Ok(h(payload.to_vec()).await),
+            // Nobody answers; the daemon would retransmit until the caller gives up.
+            None => std::future::pending().await,
+        }
+    }
+
+    async fn services(&self, capability: &str) -> Result<Vec<ServiceNode>> {
+        Ok(self.0.lock().unwrap().services.get(capability).cloned().unwrap_or_default())
     }
 }
 

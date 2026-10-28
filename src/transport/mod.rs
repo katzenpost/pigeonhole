@@ -1,8 +1,9 @@
-//! What a group protocol's client asks of Pigeonhole: boxes on streams, and the contact vouchers
-//! a new member joins through. Caps and indexes are BACAP's binary forms; a client steps from one
-//! index to the next itself, by BACAP.
+//! What a protocol asks of Pigeonhole: boxes on streams, the contact vouchers a peer joins
+//! through, and requests to the mixnet services that run on service nodes. Caps and indexes are
+//! BACAP's binary forms; a client steps from one index to the next itself, by BACAP.
 
 pub use crate::secret::Secret;
+use std::collections::BTreeMap;
 use std::future::Future;
 
 pub mod remote;
@@ -74,6 +75,17 @@ pub struct Opened {
     pub mutated_write_cap: Secret,
 }
 
+/// One instance of a mixnet service in the PKI.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ServiceNode {
+    /// The hash of the service node's identity key.
+    pub node_id_hash: [u8; 32],
+    /// The service's endpoint on that node.
+    pub endpoint: Vec<u8>,
+    /// What the service publishes in the PKI.
+    pub params: BTreeMap<String, serde_cbor::Value>,
+}
+
 /// Pigeonhole's storage, and contact vouchers: a joiner mints one for its stream, an existing
 /// member inducts it with a sealed reply, and the joiner opens the reply. Every call may fail; a
 /// caller that must succeed retries.
@@ -115,6 +127,21 @@ pub trait Backend: Send + Sync + 'static {
         sealed_reply: &[u8],
         write_cap: &[u8],
     ) -> impl Future<Output = Result<Opened>> + Send;
+    /// Send `payload` to the mixnet service at `endpoint` on the node `node`, and return its
+    /// reply, retransmitting until one comes. A service must therefore treat a repeated request
+    /// as one. A transport without mixnet services fails.
+    fn request(
+        &self,
+        _node: &[u8; 32],
+        _endpoint: &[u8],
+        _payload: &[u8],
+    ) -> impl Future<Output = Result<Vec<u8>>> + Send {
+        async { Err(Error::Other("no mixnet services over this transport".into())) }
+    }
+    /// The instances of the mixnet service `capability` in the PKI.
+    fn services(&self, _capability: &str) -> impl Future<Output = Result<Vec<ServiceNode>>> + Send {
+        async { Ok(Vec::new()) }
+    }
 }
 
 impl<B: Backend> Backend for Arc<B> {
@@ -166,5 +193,16 @@ impl<B: Backend> Backend for Arc<B> {
         write_cap: &[u8],
     ) -> impl Future<Output = Result<Opened>> + Send {
         (**self).voucher_open(secret_key, sealed_reply, write_cap)
+    }
+    fn request(
+        &self,
+        node: &[u8; 32],
+        endpoint: &[u8],
+        payload: &[u8],
+    ) -> impl Future<Output = Result<Vec<u8>>> + Send {
+        (**self).request(node, endpoint, payload)
+    }
+    fn services(&self, capability: &str) -> impl Future<Output = Result<Vec<ServiceNode>>> + Send {
+        (**self).services(capability)
     }
 }

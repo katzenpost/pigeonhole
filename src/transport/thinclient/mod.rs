@@ -7,10 +7,13 @@ use katzenpost_thin_client::error::ThinClientError;
 use katzenpost_thin_client::transport::{DialConfig, TcpDialConfig, UnixDialConfig};
 use katzenpost_thin_client::{Config, ThinClient};
 use crate::transport::{
-    Backend, Error, Inducted, Keypair, Minted, Opened, Read, Result, Secret,
+    Backend, Error, Inducted, Keypair, Minted, Opened, Read, Result, Secret, ServiceNode,
 };
 use rand::RngCore;
 use serde_cbor::Value;
+
+/// How long a request waits for a reply before it is sent again.
+const REQUEST_RETRY: std::time::Duration = std::time::Duration::from_secs(90);
 
 /// How long a daemon has to say hello once connected to.
 const HELLO_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
@@ -122,6 +125,26 @@ pub fn replica_epoch_of(doc: &BTreeMap<Value, Value>) -> Option<u64> {
     }
     let best = votes.values().max()?;
     votes.iter().find(|(_, n)| *n == best).map(|(e, _)| *e)
+}
+
+/// What a service node publishes for one capability: the server's own entry and the data the
+/// service advertises.
+fn service_params(desc: &BTreeMap<Value, Value>, capability: &str) -> BTreeMap<String, Value> {
+    let mut out = BTreeMap::new();
+    for table in ["Kaetzchen", "KaetzchenAdvertizedData"] {
+        let Some(Value::Map(services)) = desc.get(&Value::Text(table.into())) else {
+            continue;
+        };
+        let Some(Value::Map(params)) = services.get(&Value::Text(capability.into())) else {
+            continue;
+        };
+        for (k, v) in params {
+            if let Value::Text(k) = k {
+                out.insert(k.clone(), v.clone());
+            }
+        }
+    }
+    out
 }
 
 impl Backend for ThinClientBackend {
@@ -253,6 +276,41 @@ impl Backend for ThinClientBackend {
             who_reply: r.who_reply.into(),
             mutated_write_cap: r.mutated_message_write_cap.into(),
         })
+    }
+
+    async fn request(&self, node: &[u8; 32], endpoint: &[u8], payload: &[u8]) -> Result<Vec<u8>> {
+        loop {
+            match self
+                .client
+                .blocking_send_message(payload, node.to_vec(), endpoint.to_vec(), REQUEST_RETRY)
+                .await
+            {
+                Ok(reply) => return Ok(reply),
+                Err(ThinClientError::Timeout(_)) => continue,
+                Err(e) => return Err(err(e)),
+            }
+        }
+    }
+
+    async fn services(&self, capability: &str) -> Result<Vec<ServiceNode>> {
+        let descs = match self.client.get_services(capability).await {
+            Ok(d) => d,
+            Err(ThinClientError::ServiceNotFound) => return Ok(Vec::new()),
+            Err(e) => return Err(err(e)),
+        };
+        descs
+            .into_iter()
+            .map(|d| {
+                let (id_hash, endpoint) = d.to_destination();
+                Ok(ServiceNode {
+                    node_id_hash: id_hash
+                        .try_into()
+                        .map_err(|_| Error::Other("bad node ID hash".into()))?,
+                    endpoint,
+                    params: service_params(&d.mix_descriptor, capability),
+                })
+            })
+            .collect()
     }
 }
 
