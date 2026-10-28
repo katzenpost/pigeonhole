@@ -10,6 +10,9 @@ use pigeonhole_transport::{Backend, Error, Inducted, Keypair, Minted, Opened, Re
 use rand::RngCore;
 use serde_cbor::Value;
 
+/// How long a daemon has to say hello once connected to.
+const HELLO_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
 pub struct ThinClientBackend {
     pub client: Arc<ThinClient>,
 }
@@ -47,17 +50,37 @@ impl ThinClientBackend {
     pub async fn dial(
         address: &str,
     ) -> std::result::Result<ThinClientBackend, Box<dyn std::error::Error>> {
+        // The thin client is ready once the daemon's hello, which carries the geometries, is in;
+        // until then asking for a geometry panics.
+        let hello = Arc::new(tokio::sync::Notify::new());
+        let heard = hello.clone();
         let config = Config {
             dial: dial_config(address),
-            on_connection_status: None,
+            on_connection_status: Some(Arc::new(move |_| heard.notify_one())),
             on_new_pki_document: None,
             on_message_sent: None,
             on_message_reply: None,
             on_daemon_disconnected: None,
         };
-        Ok(ThinClientBackend {
-            client: ThinClient::new(config).await?,
-        })
+        let client = ThinClient::new(config).await?;
+        let said = tokio::time::timeout(HELLO_WAIT, hello.notified())
+            .await
+            .is_ok();
+        let geometry = said
+            && std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                client.pigeonhole_geometry()
+            }))
+            .is_ok();
+        if !geometry {
+            client.stop().await;
+            return Err(if said {
+                "the daemon gave no Pigeonhole geometry: it is too old for this client"
+            } else {
+                "the daemon did not say hello"
+            }
+            .into());
+        }
+        Ok(ThinClientBackend { client })
     }
 
     pub async fn close(&self) {
@@ -289,6 +312,76 @@ mod tests {
             Read::Data(bytes.to_vec())
         );
         b.close().await;
+    }
+
+    fn text(s: &str) -> Value {
+        Value::Text(s.into())
+    }
+
+    /// A daemon at a fresh port that says hello, with its geometries, only `after` it accepts.
+    async fn slow_daemon(after: std::time::Duration) -> (String, tokio::task::JoinHandle<()>) {
+        use tokio::io::AsyncWriteExt;
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = l.local_addr().unwrap().to_string();
+        let task = tokio::spawn(async move {
+            let (mut s, _) = l.accept().await.unwrap();
+            tokio::time::sleep(after).await;
+            let nat = |n: i128| Value::Integer(n);
+            let sphinx: BTreeMap<Value, Value> = [
+                "PacketLength",
+                "NrHops",
+                "HeaderLength",
+                "RoutingInfoLength",
+                "PerHopRoutingInfoLength",
+                "SURBLength",
+                "SphinxPlaintextHeaderLength",
+                "PayloadTagLength",
+                "ForwardPayloadLength",
+                "UserForwardPayloadLength",
+                "NextNodeHopLength",
+                "SPRPKeyMaterialLength",
+            ]
+            .into_iter()
+            .map(|k| (text(k), nat(1)))
+            .chain([
+                (text("NIKEName"), text("x25519")),
+                (text("KEMName"), text("")),
+            ])
+            .collect();
+            let pigeonhole: BTreeMap<Value, Value> = [
+                (text("MaxPlaintextPayloadLength"), nat(1530)),
+                (text("CourierQueryReadLength"), nat(1)),
+                (text("CourierQueryWriteLength"), nat(1)),
+                (text("CourierQueryReplyReadLength"), nat(1)),
+                (text("CourierQueryReplyWriteLength"), nat(1)),
+                (text("NIKEName"), text("x25519")),
+                (text("SignatureSchemeName"), text("Ed25519")),
+            ]
+            .into();
+            let status: BTreeMap<Value, Value> = [
+                (text("is_connected"), Value::Bool(true)),
+                (text("sphinx_geometry"), Value::Map(sphinx)),
+                (text("pigeonhole_geometry"), Value::Map(pigeonhole)),
+            ]
+            .into();
+            let hello: BTreeMap<Value, Value> =
+                [(text("connection_status_event"), Value::Map(status))].into();
+            let b = serde_cbor::to_vec(&hello).unwrap();
+            s.write_all(&(b.len() as u32).to_be_bytes()).await.unwrap();
+            s.write_all(&b).await.unwrap();
+            // Stay connected until the test ends.
+            std::future::pending::<()>().await;
+        });
+        (addr, task)
+    }
+
+    /// A daemon slow to say hello: dialing waits for it, so the geometry is there to ask for.
+    #[tokio::test]
+    async fn dial_waits_for_the_daemons_hello() {
+        let (addr, daemon) = slow_daemon(std::time::Duration::from_millis(300)).await;
+        let b = ThinClientBackend::dial(&addr).await.unwrap();
+        assert_eq!(b.max_plaintext().await.unwrap(), 1530);
+        daemon.abort();
     }
 
     #[test]
