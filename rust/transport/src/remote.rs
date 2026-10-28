@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 
-use crate::{Backend, Error, Inducted, Keypair, Minted, Opened, Read, Result};
+use crate::{Backend, Error, Inducted, Keypair, Minted, Opened, Read, Result, Secret};
 
 pub struct Remote {
     pub socket: PathBuf,
@@ -59,8 +59,8 @@ impl Backend for Remote {
             .await?;
         let k = &r["Keypair"];
         Ok(Keypair {
-            write_cap: bytes(&k["WriteCap"]),
-            read_cap: bytes(&k["ReadCap"]),
+            write_cap: bytes(&k["WriteCap"]).into(),
+            read_cap: bytes(&k["ReadCap"]).into(),
             first: bytes(&k["First"]),
         })
     }
@@ -108,19 +108,19 @@ impl Backend for Remote {
             .await?;
         let m = &r["Minted"];
         Ok(Minted {
-            voucher: bytes(&m["Voucher"]),
-            payload: bytes(&m["Payload"]),
-            write_cap: bytes(&m["WriteCap"]),
-            read_cap: bytes(&m["ReadCap"]),
-            secret_key: bytes(&m["SecretKey"]),
+            voucher: bytes(&m["Voucher"]).into(),
+            payload: bytes(&m["Payload"]).into(),
+            write_cap: bytes(&m["WriteCap"]).into(),
+            read_cap: bytes(&m["ReadCap"]).into(),
+            secret_key: bytes(&m["SecretKey"]).into(),
         })
     }
 
-    async fn voucher_derive_stream(&self, voucher: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
+    async fn voucher_derive_stream(&self, voucher: &[u8]) -> Result<(Secret, Secret)> {
         let r = self
             .call("VoucherDeriveStream", Self::args(voucher, &[], &[], ""))
             .await?;
-        Ok((bytes(&r["A"]), bytes(&r["B"])))
+        Ok((bytes(&r["A"]).into(), bytes(&r["B"]).into()))
     }
 
     async fn voucher_induct(
@@ -135,7 +135,7 @@ impl Backend for Remote {
         let i = &r["Induct"];
         Ok(Inducted {
             name: i["Name"].as_str().unwrap_or("").into(),
-            mutated_read_cap: bytes(&i["MutatedReadCap"]),
+            mutated_read_cap: bytes(&i["MutatedReadCap"]).into(),
             sealed_reply: bytes(&i["SealedReply"]),
         })
     }
@@ -154,8 +154,8 @@ impl Backend for Remote {
             .await?;
         let o = &r["Opened"];
         Ok(Opened {
-            who_reply: bytes(&o["WhoReply"]),
-            mutated_write_cap: bytes(&o["MutatedWriteCap"]),
+            who_reply: bytes(&o["WhoReply"]).into(),
+            mutated_write_cap: bytes(&o["MutatedWriteCap"]).into(),
         })
     }
 }

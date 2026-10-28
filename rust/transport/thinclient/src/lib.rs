@@ -6,7 +6,9 @@ use std::sync::Arc;
 use katzenpost_thin_client::error::ThinClientError;
 use katzenpost_thin_client::transport::{DialConfig, TcpDialConfig, UnixDialConfig};
 use katzenpost_thin_client::{Config, ThinClient};
-use pigeonhole_transport::{Backend, Error, Inducted, Keypair, Minted, Opened, Read, Result};
+use pigeonhole_transport::{
+    Backend, Error, Inducted, Keypair, Minted, Opened, Read, Result, Secret,
+};
 use rand::RngCore;
 use serde_cbor::Value;
 
@@ -128,8 +130,8 @@ impl Backend for ThinClientBackend {
         rand::thread_rng().fill_bytes(&mut seed);
         let k = self.client.new_keypair(&seed).await.map_err(err)?;
         Ok(Keypair {
-            write_cap: k.write_cap,
-            read_cap: k.read_cap,
+            write_cap: k.write_cap.into(),
+            read_cap: k.read_cap.into(),
             first: k.first_message_index,
         })
     }
@@ -201,21 +203,21 @@ impl Backend for ThinClientBackend {
             .await
             .map_err(err)?;
         Ok(Minted {
-            voucher: r.voucher,
-            payload: r.voucher_payload,
-            write_cap: r.voucher_write_cap,
-            read_cap: r.voucher_read_cap,
-            secret_key: r.voucher_secret_key,
+            voucher: r.voucher.into(),
+            payload: r.voucher_payload.into(),
+            write_cap: r.voucher_write_cap.into(),
+            read_cap: r.voucher_read_cap.into(),
+            secret_key: r.voucher_secret_key.into(),
         })
     }
 
-    async fn voucher_derive_stream(&self, voucher: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
+    async fn voucher_derive_stream(&self, voucher: &[u8]) -> Result<(Secret, Secret)> {
         let r = self
             .client
             .voucher_derive_stream(voucher)
             .await
             .map_err(err)?;
-        Ok((r.voucher_write_cap, r.voucher_read_cap))
+        Ok((r.voucher_write_cap.into(), r.voucher_read_cap.into()))
     }
 
     async fn voucher_induct(
@@ -231,7 +233,7 @@ impl Backend for ThinClientBackend {
             .map_err(err)?;
         Ok(Inducted {
             name: r.display_name,
-            mutated_read_cap: r.mutated_message_read_cap,
+            mutated_read_cap: r.mutated_message_read_cap.into(),
             sealed_reply: r.sealed_reply,
         })
     }
@@ -248,8 +250,8 @@ impl Backend for ThinClientBackend {
             .await
             .map_err(err)?;
         Ok(Opened {
-            who_reply: r.who_reply,
-            mutated_write_cap: r.mutated_message_write_cap,
+            who_reply: r.who_reply.into(),
+            mutated_write_cap: r.mutated_message_write_cap.into(),
         })
     }
 }

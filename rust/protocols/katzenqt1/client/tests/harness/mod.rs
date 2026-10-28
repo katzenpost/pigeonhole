@@ -229,7 +229,8 @@ impl World {
                     .collect(),
                 ..wire::ReplyWho::default()
             }
-            .to_bytes();
+            .to_bytes()
+            .into();
         }
         let crash = self.crash.as_mut().and_then(|c| c(who, &a));
         let x = Executor {

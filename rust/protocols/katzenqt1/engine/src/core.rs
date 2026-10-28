@@ -6,6 +6,7 @@ use pigeonhole_katzenqt1_member::{
     Effect, Event, Group, Index, Key, Outgoing, Payload, ReadResult, Retention,
 };
 use pigeonhole_katzenqt1_wire as wire;
+use pigeonhole_transport::Secret;
 use wire::{Chunk, FileUpload, MAX_FILE};
 
 use crate::io::{Action, FileWrite, Input, Outcome, StepResult};
@@ -256,7 +257,7 @@ impl Cx<'_> {
                         file,
                         box_size: max,
                         total,
-                        write_cap: Vec::new(),
+                        write_cap: Secret::default(),
                         sent: 0,
                         next: Vec::new(),
                     };
@@ -462,7 +463,7 @@ impl Cx<'_> {
 
     fn start_reads(&mut self, c: &mut Chat) {
         let Some(g) = &c.group else { return };
-        let readers: Vec<(Key, Vec<u8>, Index)> = g
+        let readers: Vec<(Key, Secret, Index)> = g
             .readers
             .values()
             .map(|r| (r.stream.clone(), r.read_cap.clone(), r.next.clone()))
@@ -536,7 +537,7 @@ impl Cx<'_> {
             chat: c.id.clone(),
             voucher: i.voucher.clone(),
             payload: i.payload.clone().unwrap(),
-            who_reply: who.to_bytes(),
+            who_reply: who.to_bytes().into(),
         });
         c.inducting.as_mut().unwrap().sealing = true;
         self.dirty(c);
@@ -824,7 +825,7 @@ impl Cx<'_> {
                     stream: stream.clone(),
                     index,
                     next: next.clone(),
-                    read_cap,
+                    read_cap: read_cap.into(),
                     total: t,
                 });
                 c.cursors.insert(stream, next);
@@ -1199,7 +1200,7 @@ impl Engine {
                     cx.notice(c, NoticeKind::NotJoinedYet, &[]);
                 } else if c.inducting.as_ref().is_some_and(|i| i.payload.is_some()) {
                     cx.notice(c, NoticeKind::AlreadyAdding, &[]);
-                } else if let Ok(voucher) = voucher {
+                } else if let Ok(voucher) = voucher.map(Secret::from) {
                     c.inducting = Some(Inducting {
                         voucher: voucher.clone(),
                         ..Inducting::default()

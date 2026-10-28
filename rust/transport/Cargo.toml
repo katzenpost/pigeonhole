@@ -8,6 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+pigeonhole-secret.workspace = true
 pigeonhole-katzenqt1-member.workspace = true
 ed25519-dalek.workspace = true
 rand.workspace = true

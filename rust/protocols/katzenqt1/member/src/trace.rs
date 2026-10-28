@@ -489,11 +489,11 @@ pub fn read_event(j: &Value) -> R<Event> {
         },
         "Invite" => Event::Invite {
             name: s(f("name")?)?,
-            read_cap: b(f("read_cap")?)?,
+            read_cap: b(f("read_cap")?)?.into(),
         },
         "Introduce" => Event::Introduce {
             name: s(f("name")?)?,
-            read_cap: b(f("read_cap")?)?,
+            read_cap: b(f("read_cap")?)?.into(),
         },
         "Remove" => Event::Remove {
             member: b(f("member")?)?,
@@ -779,7 +779,7 @@ fn read_at(j: &Value) -> R<At> {
 fn read_reader(j: &Value) -> R<Reader> {
     Ok(Reader {
         stream: b(get(j, "stream")?)?,
-        read_cap: b(get(j, "read_cap")?)?,
+        read_cap: b(get(j, "read_cap")?)?.into(),
         next: b(get(j, "next")?)?,
         last: ob(get(j, "last")?)?,
         passed: us(get(j, "passed")?)?,
@@ -916,7 +916,7 @@ pub fn read_group(j: &Value) -> R<Group> {
             let p = tup(inv, 2)?;
             Some(Invitee {
                 name: s(&p[0])?,
-                read_cap: b(&p[1])?,
+                read_cap: b(&p[1])?.into(),
             })
         },
         commit: bo(get(l, "commit")?)?,
@@ -979,7 +979,7 @@ pub fn read_group(j: &Value) -> R<Group> {
         Ok(())
     })?;
     Ok(Group {
-        read_cap: b(get(j, "read_cap")?)?,
+        read_cap: b(get(j, "read_cap")?)?.into(),
         policy: read_retention(get(j, "policy")?)?,
         recheck: us(get(j, "recheck")?)?,
         rosters,

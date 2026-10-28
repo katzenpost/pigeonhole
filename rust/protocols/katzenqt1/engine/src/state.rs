@@ -1,5 +1,6 @@
 use indexmap::IndexMap;
 use pigeonhole_katzenqt1_member::{Group, Index, Key};
+use pigeonhole_transport::Secret;
 
 use crate::Action;
 use crate::notice::Notice;
@@ -16,7 +17,7 @@ pub struct Upload {
     pub box_size: usize,
     pub total: usize,
     /// The substream's, once made.
-    pub write_cap: Vec<u8>,
+    pub write_cap: Secret,
     /// The boxes written so far, and the index of the next.
     pub sent: usize,
     pub next: Index,
@@ -77,24 +78,24 @@ pub struct Line {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Joining {
     pub code: String,
-    pub secret_key: Vec<u8>,
-    pub voucher_read_cap: Vec<u8>,
+    pub secret_key: Secret,
+    pub voucher_read_cap: Secret,
     pub box1: Index,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Sealed {
     pub name: String,
-    pub mutated_read_cap: Vec<u8>,
+    pub mutated_read_cap: Secret,
     pub reply: Vec<u8>,
 }
 
 /// Inducting a member whose voucher we were given: reading the voucher until `payload` is set.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Inducting {
-    pub voucher: Vec<u8>,
-    pub payload: Option<Vec<u8>>,
-    pub voucher_write_cap: Vec<u8>,
+    pub voucher: Secret,
+    pub payload: Option<Secret>,
+    pub voucher_write_cap: Secret,
     pub box1: Index,
     /// The reply is being sealed.
     pub sealing: bool,
@@ -110,7 +111,7 @@ pub struct Download {
     /// The I box, and the one after it.
     pub index: Index,
     pub next: Index,
-    pub read_cap: Vec<u8>,
+    pub read_cap: Secret,
     /// How many boxes the substream holds, when the writer said.
     pub total: Option<usize>,
 }
@@ -119,7 +120,7 @@ pub struct Download {
 pub struct Chat {
     pub id: ChatId,
     pub name: String,
-    pub write_cap: Vec<u8>,
+    pub write_cap: Secret,
     pub next_write: Index,
     pub group: Option<Group>,
     /// Where we read each member's stream next.

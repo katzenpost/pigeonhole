@@ -4,6 +4,7 @@ use pigeonhole_katzenqt1_wire::{
     Roster as WireRoster, RosterEntry, membership_hash, prefix_of,
 };
 
+use crate::Secret;
 use crate::rosters::{Entry, KnownEntry, Rosters, Started};
 use crate::{
     At, Effect, Event, Index, Induction, Invitee, Key, Ledger, Message, Payload, ReadResult,
@@ -60,7 +61,7 @@ pub struct ReceivedAt {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Group {
     /// Our own read cap: our key and our stream's first index.
-    pub read_cap: Vec<u8>,
+    pub read_cap: Secret,
     pub policy: Retention,
     /// How many boxes behind it a reader keeps one a scan stepped past.
     pub recheck: usize,
@@ -99,7 +100,7 @@ impl Group {
     fn new(read_cap: Vec<u8>, policy: Retention, recheck: usize) -> Group {
         let start = start_of(&read_cap);
         Group {
-            read_cap,
+            read_cap: read_cap.into(),
             policy,
             recheck,
             rosters: Rosters::default(),
@@ -436,8 +437,8 @@ impl Group {
     /// Our view of the group, as a message we make ourselves says it: ourselves and every member
     /// we read, but for `leaving`.
     pub fn membership(&self, leaving: Option<&Key>) -> Vec<u8> {
-        let caps: Vec<&[u8]> = std::iter::once(self.read_cap.as_slice())
-            .chain(self.readers.values().map(|r| r.read_cap.as_slice()))
+        let caps: Vec<&[u8]> = std::iter::once(&self.read_cap[..])
+            .chain(self.readers.values().map(|r| &r.read_cap[..]))
             .filter(|c| leaving != Some(&key_of(c)))
             .collect();
         membership_hash(&caps).to_vec()
@@ -701,13 +702,13 @@ impl Group {
                 let k = key_at(index)?;
                 if k == me {
                     return Some(Member {
-                        read_cap: self.read_cap.clone(),
+                        read_cap: self.read_cap.to_vec(),
                         start: own_start.clone(),
                     });
                 }
                 let r = self.readers.get(&k)?;
                 Some(Member {
-                    read_cap: r.read_cap.clone(),
+                    read_cap: r.read_cap.to_vec(),
                     start: self.ledger.starts.get(&k).unwrap_or(&r.next).clone(),
                 })
             })
@@ -801,7 +802,7 @@ impl Group {
         self.progress()
     }
 
-    fn invite(&mut self, name: String, read_cap: Vec<u8>, commit: bool) -> Vec<Effect> {
+    fn invite(&mut self, name: String, read_cap: Secret, commit: bool) -> Vec<Effect> {
         self.ledger.induction = Induction::CatchingUp;
         self.ledger.invitee = Some(Invitee { name, read_cap });
         self.ledger.commit = commit;

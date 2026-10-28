@@ -710,7 +710,7 @@ impl<'a> World<'a> {
             i,
             Event::Invite {
                 name: new.into(),
-                read_cap: rc,
+                read_cap: rc.into(),
             },
         )?;
         out.extend(self.written_since(i)?);
@@ -756,7 +756,7 @@ impl<'a> World<'a> {
             i,
             Event::Introduce {
                 name: new.into(),
-                read_cap: rc,
+                read_cap: rc.into(),
             },
         )?;
         out.extend(self.written_since(i)?);
