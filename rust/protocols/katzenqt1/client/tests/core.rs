@@ -91,6 +91,30 @@ fn two_members() {
     assert!(w.chat(0, "g").unwrap().names.values().any(|n| n == "bob"));
 }
 
+/// katzenqt replies to a voucher with the members' read caps alone when its conversation keeps no
+/// rosters, as one does that had members before rosters or joined through such a reply. The
+/// newcomer joins anyway, as katzenqt's own joiner does, and reads and is read by every member.
+#[test]
+fn joins_through_a_reply_without_rosters() {
+    let mut w = world(&["alice", "bob", "carol"]);
+    found_and_join(&mut w);
+    w.rosterless.insert(0);
+    induct(&mut w, 0, 2);
+    send(&mut w, 2, "carol here");
+    send(&mut w, 0, "hi carol");
+    send(&mut w, 1, "bob too");
+    assert!(
+        w.run_until(
+            |w| w.says(0, "g", "carol here")
+                && w.says(1, "g", "carol here")
+                && w.says(2, "g", "hi carol")
+                && w.says(2, "g", "bob too"),
+            LIMIT
+        ),
+        "carol does not read or is not read by every member"
+    );
+}
+
 #[test]
 fn three_members() {
     let mut w = world(&["alice", "bob", "carol"]);

@@ -854,7 +854,7 @@ fn joined_from(o: &pigeonhole_transport::Opened) -> Option<(Group, wire::ReplyWh
     if o.mutated_write_cap.len() < wire::KEY_SIZE {
         return None;
     }
-    let reply = who.to_join_reply()?;
+    let reply = who.to_join_reply().or_else(|| who.without_rosters())?;
     let own = &o.mutated_write_cap[wire::KEY_SIZE..];
     if reply
         .members
