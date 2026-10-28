@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/katzenpost/pigeonhole/internal/ordmap"
+	"github.com/katzenpost/pigeonhole_clients/internal/ordmap"
 )
 
 // Rosters with explicit numbering: every roster index is announced explicitly, so a missed

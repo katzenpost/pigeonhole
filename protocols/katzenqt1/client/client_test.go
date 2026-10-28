@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/engine"
-	"github.com/katzenpost/pigeonhole/transport"
-	"github.com/katzenpost/pigeonhole/transport/sim"
+	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/engine"
+	"github.com/katzenpost/pigeonhole_clients/transport"
+	"github.com/katzenpost/pigeonhole_clients/transport/sim"
 )
 
 func open(t *testing.T, w *sim.World, dir, name string) *Client {

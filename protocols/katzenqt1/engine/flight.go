@@ -1,6 +1,6 @@
 package engine
 
-import "github.com/katzenpost/pigeonhole/protocols/katzenqt1/member"
+import "github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/member"
 
 type streamKey struct {
 	chat   ChatID

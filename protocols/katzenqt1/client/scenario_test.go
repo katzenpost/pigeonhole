@@ -13,12 +13,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/engine"
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/member"
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/member/tracejson"
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/store"
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/wire"
-	"github.com/katzenpost/pigeonhole/transport/sim"
+	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/engine"
+	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/member"
+	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/member/tracejson"
+	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/store"
+	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/wire"
+	"github.com/katzenpost/pigeonhole_clients/transport/sim"
 )
 
 // Members, each a client engine, over the in-memory Pigeonhole, driven by a scenario written as

@@ -6,7 +6,7 @@ members = ["protocols/katzenqt1/wire", "protocols/katzenqt1/member", "transport"
 edition = "2024"
 rust-version = "1.88"
 license = "AGPL-3.0-only"
-repository = "https://github.com/katzenpost/pigeonhole"
+repository = "https://github.com/katzenpost/pigeonhole_clients"
 version = "0.1.0"
 
 [workspace.dependencies]

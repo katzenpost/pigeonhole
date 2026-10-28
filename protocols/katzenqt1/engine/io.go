@@ -1,8 +1,8 @@
 package engine
 
 import (
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/member"
-	"github.com/katzenpost/pigeonhole/transport"
+	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/member"
+	"github.com/katzenpost/pigeonhole_clients/transport"
 )
 
 // Input is one thing that happened: a user's command, or what came of an Action.

@@ -1,9 +1,9 @@
 package sim
 
 import (
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/member"
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/member/tracejson"
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/wire"
+	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/member"
+	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/member/tracejson"
+	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/wire"
 )
 
 // Every call on a member goes through these, so a recorder sees each one.

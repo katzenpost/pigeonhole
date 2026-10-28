@@ -3,8 +3,8 @@ package member
 import (
 	"slices"
 
-	"github.com/katzenpost/pigeonhole/internal/ordmap"
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/wire"
+	"github.com/katzenpost/pigeonhole_clients/internal/ordmap"
+	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/wire"
 )
 
 // PoolSize is how many of its own indexes a member derives at a time.

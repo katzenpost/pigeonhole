@@ -6,8 +6,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/member/tracejson"
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/store"
+	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/member/tracejson"
+	"github.com/katzenpost/pigeonhole_clients/protocols/katzenqt1/store"
 )
 
 func main() {
