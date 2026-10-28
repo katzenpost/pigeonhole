@@ -161,11 +161,11 @@ func (x *Executor) perform(ctx context.Context, a engine.Action) (Outcome, error
 		}
 		return done(engine.Minted{Chat: a.Chat, Minted: m, Box1: next(box0)}), nil
 	case engine.DoAwaitReply:
+		// A read that fails is tried again, as a box not yet written is: the reply may come at
+		// any time, and only reading it lets the joiner in.
 		r, err := b.ReadBox(ctx, a.VoucherReadCap, []byte(a.Box1))
 		switch {
-		case err != nil:
-			return Outcome{}, err
-		case r.Kind == transport.NotFound:
+		case err != nil || r.Kind == transport.NotFound:
 			return retry(a), nil
 		case r.Kind == transport.Tombstone:
 			return done(engine.Failed{Chat: a.Chat, What: "the voucher's reply was withdrawn"}), nil
@@ -175,14 +175,12 @@ func (x *Executor) perform(ctx context.Context, a engine.Action) (Outcome, error
 	case engine.DoReadVoucher:
 		wc, rc, err := b.VoucherDeriveStream(ctx, a.Voucher)
 		if err != nil {
-			return Outcome{}, err
+			return retry(a), nil
 		}
 		box0 := member.Index(wire.StartOf(rc))
 		r, err := b.ReadBox(ctx, rc, []byte(box0))
 		switch {
-		case err != nil:
-			return Outcome{}, err
-		case r.Kind == transport.NotFound:
+		case err != nil || r.Kind == transport.NotFound:
 			return retry(a), nil
 		case r.Kind == transport.Tombstone:
 			return done(engine.Failed{Chat: a.Chat, What: "that voucher was withdrawn"}), nil

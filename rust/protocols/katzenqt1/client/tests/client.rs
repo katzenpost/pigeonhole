@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use pigeonhole_katzenqt1_client::{Client, ClientError, Config, RETRY_MS};
 use pigeonhole_transport::sim::World;
+use pigeonhole_transport::{self as transport, Backend, Read};
 
 fn tmp() -> tempfile::TempDir {
     tempfile::TempDir::new_in(
@@ -143,6 +144,110 @@ async fn client() {
     })
     .await;
     assert!(w.state().refused.is_empty());
+    alice.close().await;
+    bob.close().await;
+}
+
+/// A Pigeonhole whose next `failing` reads fail, as reads over the mixnet sometimes do.
+#[derive(Clone)]
+struct Flaky {
+    world: World,
+    failing: std::sync::Arc<std::sync::atomic::AtomicIsize>,
+}
+
+impl Flaky {
+    fn fail_next_reads(&self, n: isize) {
+        self.failing.store(n, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl Backend for Flaky {
+    async fn new_keypair(&self) -> transport::Result<transport::Keypair> {
+        self.world.new_keypair().await
+    }
+    async fn write_box(&self, w: &[u8], i: &[u8], p: &[u8]) -> transport::Result<()> {
+        self.world.write_box(w, i, p).await
+    }
+    async fn read_box(&self, r: &[u8], i: &[u8]) -> transport::Result<Read> {
+        if self
+            .failing
+            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst)
+            > 0
+        {
+            return Err(transport::Error::Other("read timed out".into()));
+        }
+        self.world.read_box(r, i).await
+    }
+    async fn replica_epoch(&self) -> transport::Result<u64> {
+        self.world.replica_epoch().await
+    }
+    async fn max_plaintext(&self) -> transport::Result<usize> {
+        self.world.max_plaintext().await
+    }
+    async fn voucher_mint(&self, w: &[u8], n: &str) -> transport::Result<transport::Minted> {
+        self.world.voucher_mint(w, n).await
+    }
+    async fn voucher_derive_stream(&self, v: &[u8]) -> transport::Result<(Vec<u8>, Vec<u8>)> {
+        self.world.voucher_derive_stream(v).await
+    }
+    async fn voucher_induct(
+        &self,
+        v: &[u8],
+        p: &[u8],
+        r: &[u8],
+    ) -> transport::Result<transport::Inducted> {
+        self.world.voucher_induct(v, p, r).await
+    }
+    async fn voucher_open(
+        &self,
+        s: &[u8],
+        r: &[u8],
+        w: &[u8],
+    ) -> transport::Result<transport::Opened> {
+        self.world.voucher_open(s, r, w).await
+    }
+}
+
+/// A joiner whose reads of the voucher's reply fail for a while still joins once they succeed;
+/// so does an introducer whose reads of the voucher fail.
+#[tokio::test(flavor = "multi_thread")]
+async fn voucher_reads_that_fail_are_retried() {
+    let w = World::default();
+    let (alice_dir, bob_dir) = (tmp(), tmp());
+    let alice_net = Flaky {
+        world: w.clone(),
+        failing: Default::default(),
+    };
+    let bob_net = Flaky {
+        world: w.clone(),
+        failing: Default::default(),
+    };
+    let cfg = |dir: &std::path::Path, name: &str| Config {
+        state_dir: dir.into(),
+        name: name.into(),
+        epoch_poll: Duration::from_secs(1),
+        no_sync: false,
+    };
+    let alice = Client::open(cfg(alice_dir.path(), "alice"), alice_net.clone())
+        .await
+        .unwrap();
+    let bob = Client::open(cfg(bob_dir.path(), "bob"), bob_net.clone())
+        .await
+        .unwrap();
+    let g = alice.create("g").await.unwrap();
+    let bg = bob.join("g").await.unwrap();
+    wait_for("a voucher code and alice's group", || async {
+        !bob.chat(&bg).await.unwrap().code.is_empty() && alice.chat(&g).await.unwrap().joined
+    })
+    .await;
+    let code = bob.chat(&bg).await.unwrap().code;
+    bob_net.fail_next_reads(3);
+    alice_net.fail_next_reads(3);
+    alice.invite(&g, &code).await.unwrap();
+    wait_for("bob to join", || async {
+        bob.chat(&bg).await.unwrap().joined
+    })
+    .await;
     alice.close().await;
     bob.close().await;
 }
