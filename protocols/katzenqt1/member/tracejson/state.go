@@ -1,9 +1,9 @@
 package tracejson
 
 import (
-	"github.com/katzenpost/pigeonhole/internal/ordmap"
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/member"
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/wire"
+	"github.com/katzenpost/pigeonhole_protocols/internal/ordmap"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/member"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/wire"
 )
 
 // Reading a member's state back from what Group writes, so that the state can be saved in this

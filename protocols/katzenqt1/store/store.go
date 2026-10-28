@@ -14,7 +14,7 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/engine"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/engine"
 )
 
 const version = 1

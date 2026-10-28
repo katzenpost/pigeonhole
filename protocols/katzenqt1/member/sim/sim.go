@@ -16,9 +16,9 @@ import (
 	"golang.org/x/crypto/sha3"
 
 	"github.com/katzenpost/hpqc/bacap"
-	"github.com/katzenpost/pigeonhole/internal/ordmap"
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/member"
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/wire"
+	"github.com/katzenpost/pigeonhole_protocols/internal/ordmap"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/member"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/wire"
 )
 
 // draw is shake_256("{name}/{n}"), the nth draw of katzenqt's seeded randomness.

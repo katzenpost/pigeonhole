@@ -20,7 +20,7 @@ import (
 // must reach the other member, once.
 
 func build(t *testing.T, dir string) {
-	cmd := exec.Command("go", "build", "-o", dir, "github.com/katzenpost/pigeonhole/cmd/...")
+	cmd := exec.Command("go", "build", "-o", dir, "github.com/katzenpost/pigeonhole_protocols/cmd/...")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}

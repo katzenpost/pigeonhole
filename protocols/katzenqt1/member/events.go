@@ -7,7 +7,7 @@ package member
 import (
 	"encoding/binary"
 
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/wire"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/wire"
 )
 
 // Key is a member's identity: the public key its read cap begins with, as bytes.

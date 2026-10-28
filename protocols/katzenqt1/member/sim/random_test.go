@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/member"
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/member/tracejson"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/member"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/member/tracejson"
 )
 
 func randomRuns() int {

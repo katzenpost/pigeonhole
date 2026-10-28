@@ -11,8 +11,8 @@ package engine
 import (
 	"bytes"
 
-	"github.com/katzenpost/pigeonhole/internal/ordmap"
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/member"
+	"github.com/katzenpost/pigeonhole_protocols/internal/ordmap"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/member"
 )
 
 // ChatID names a conversation for good; its name may change.

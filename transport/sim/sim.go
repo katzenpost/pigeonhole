@@ -13,7 +13,7 @@ import (
 	"sync"
 
 	"github.com/katzenpost/hpqc/bacap"
-	"github.com/katzenpost/pigeonhole/transport"
+	"github.com/katzenpost/pigeonhole_protocols/transport"
 )
 
 type box struct {

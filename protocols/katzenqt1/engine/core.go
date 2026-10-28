@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/katzenpost/pigeonhole/internal/ordmap"
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/member"
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/wire"
-	"github.com/katzenpost/pigeonhole/transport"
+	"github.com/katzenpost/pigeonhole_protocols/internal/ordmap"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/member"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/wire"
+	"github.com/katzenpost/pigeonhole_protocols/transport"
 )
 
 // Window is how many boxes of an upload are written at once.

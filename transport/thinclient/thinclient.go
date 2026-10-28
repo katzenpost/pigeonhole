@@ -9,7 +9,7 @@ import (
 
 	"github.com/katzenpost/hpqc/bacap"
 	"github.com/katzenpost/katzenpost/client/thin"
-	"github.com/katzenpost/pigeonhole/transport"
+	"github.com/katzenpost/pigeonhole_protocols/transport"
 )
 
 type Backend struct {

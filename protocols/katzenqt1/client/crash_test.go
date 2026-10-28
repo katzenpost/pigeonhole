@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/engine"
-	"github.com/katzenpost/pigeonhole/protocols/katzenqt1/store"
-	"github.com/katzenpost/pigeonhole/transport/sim"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/engine"
+	"github.com/katzenpost/pigeonhole_protocols/protocols/katzenqt1/store"
+	"github.com/katzenpost/pigeonhole_protocols/transport/sim"
 )
 
 // The crash tests run each client scenario with one member restarted after one of its actions,
