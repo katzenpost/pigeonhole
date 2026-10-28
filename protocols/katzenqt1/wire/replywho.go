@@ -133,6 +133,35 @@ func (w *ReplyWho) ToJoinReply() *JoinReply {
 	return r
 }
 
+// WithoutRosters is the JoinReply of a reply that carries no rosters, as katzenqt sends for a
+// conversation that keeps none: the members it names, the introducer first, with every roster
+// unknown. It is nil when the reply carries rosters or cannot be read.
+func (w *ReplyWho) WithoutRosters() *JoinReply {
+	if w.HasRosters {
+		return nil
+	}
+	r := &JoinReply{}
+	seen := map[string]bool{}
+	for _, p := range w.PleaseAdds {
+		if p == nil {
+			continue
+		}
+		k := string(KeyOf(p.ReadCap))
+		if seen[k] {
+			return nil
+		}
+		seen[k] = true
+		r.Members = append(r.Members, &Member{ReadCap: p.ReadCap, Start: StartOf(p.ReadCap)})
+	}
+	places := len(r.Members)
+	if places < 1 || places >= RosterMax {
+		return nil
+	}
+	r.Rosters = make([]*Roster, places)
+	r.Newcomer = places
+	return r
+}
+
 func (w *ReplyWho) term() term {
 	t := term{kind: termMap}
 	add := func(k string, v term) {

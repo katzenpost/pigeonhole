@@ -84,6 +84,9 @@ type scWorld struct {
 	failNext, clobberNext map[int]string
 	// opened is the last reply to its voucher each member opened, by chat.
 	opened map[int]map[engine.ChatID]engine.Opened
+	// rosterless are the members who reply to a voucher as katzenqt does for a conversation
+	// that keeps no rosters: with the members' read caps alone.
+	rosterless map[int]bool
 }
 
 // kindOf is an action's or an input's kind, as Rust names it.
@@ -168,6 +171,17 @@ func (w *scWorld) act() bool {
 	}
 	q := w.queue[k]
 	w.queue = slices.Delete(w.queue, k, k+1)
+	if s, ok := q.a.(engine.DoSeal); ok && w.rosterless[q.who] {
+		full := wire.DecodeReplyWho(s.WhoReply)
+		bare := &wire.ReplyWho{}
+		for _, p := range full.PleaseAdds {
+			if p != nil {
+				bare.PleaseAdds = append(bare.PleaseAdds, p)
+			}
+		}
+		s.WhoReply = bare.Encode()
+		q.a = s
+	}
 	x := &Executor{Backend: sim.Backend{World: w.sim}, Files: w.members[q.who].filesOf(),
 		Sleep: func(context.Context, int) error { return nil }}
 	var o Outcome

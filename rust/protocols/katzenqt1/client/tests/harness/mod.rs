@@ -73,6 +73,9 @@ pub struct World {
     pub clobber_next: HashMap<usize, String>,
     /// The last reply to its voucher each member opened, by chat.
     pub opened: HashMap<(usize, String), Input>,
+    /// Members who reply to a voucher as katzenqt does for a conversation that keeps no rosters:
+    /// with the members' read caps alone.
+    pub rosterless: HashSet<usize>,
 }
 
 /// An action's or an input's kind, as Go names it without its `Do`.
@@ -103,6 +106,7 @@ impl Default for World {
             check_saved: false,
             disk: false,
             fail_next: HashMap::new(),
+            rosterless: HashSet::new(),
             clobber_next: HashMap::new(),
             opened: HashMap::new(),
         }
@@ -212,7 +216,21 @@ impl World {
         let Some(k) = self.queue.iter().position(|q| !self.held.contains(&q.0)) else {
             return false;
         };
-        let (who, a) = self.queue.remove(k);
+        let (who, mut a) = self.queue.remove(k);
+        if self.rosterless.contains(&who)
+            && let Action::Seal { who_reply, .. } = &mut a
+        {
+            let full = wire::ReplyWho::from_bytes(who_reply).unwrap();
+            *who_reply = wire::ReplyWho {
+                please_adds: full
+                    .please_adds
+                    .into_iter()
+                    .filter(Option::is_some)
+                    .collect(),
+                ..wire::ReplyWho::default()
+            }
+            .to_bytes();
+        }
         let crash = self.crash.as_mut().and_then(|c| c(who, &a));
         let x = Executor {
             backend: self.sim.clone(),

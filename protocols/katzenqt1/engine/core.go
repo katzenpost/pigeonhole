@@ -829,6 +829,9 @@ func joinedFrom(o transport.Opened) (*member.Group, *wire.ReplyWho) {
 	}
 	reply := who.ToJoinReply()
 	if reply == nil {
+		reply = who.WithoutRosters()
+	}
+	if reply == nil {
 		return nil, nil
 	}
 	own := o.MutatedWriteCap[wire.KeySize:]

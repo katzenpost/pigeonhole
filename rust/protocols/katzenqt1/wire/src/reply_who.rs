@@ -139,6 +139,41 @@ impl ReplyWho {
         })
     }
 
+    /// The JoinReply of a reply that carries no rosters, as katzenqt sends for a conversation
+    /// that keeps none: the members it names, the introducer first, with every roster unknown.
+    /// `None` when the reply carries rosters or cannot be read.
+    pub fn without_rosters(&self) -> Option<JoinReply> {
+        if self.rosters.is_some() {
+            return None;
+        }
+        let members: Vec<&PleaseAdd> = self.please_adds.iter().flatten().collect();
+        let places = members.len();
+        if !(1..ROSTER_MAX).contains(&places) {
+            return None;
+        }
+        let keys: Vec<&[u8]> = members.iter().map(|p| key_of(&p.read_cap)).collect();
+        for (i, k) in keys.iter().enumerate() {
+            if keys[..i].contains(k) {
+                return None;
+            }
+        }
+        Some(JoinReply {
+            members: members
+                .iter()
+                .map(|p| {
+                    Some(Member {
+                        read_cap: p.read_cap.clone(),
+                        start: start_of(&p.read_cap).to_vec(),
+                    })
+                })
+                .collect(),
+            rosters: vec![None; places],
+            introductions: Vec::new(),
+            introducer: 0,
+            newcomer: places,
+        })
+    }
+
     fn term(&self) -> Term {
         let text = |s: &str| Term::Text(s.to_owned());
         let mut kvs = vec![(

@@ -133,6 +133,26 @@ func TestTwoMembers(t *testing.T) {
 	}
 }
 
+// TestJoinsThroughAReplyWithoutRosters: katzenqt replies to a voucher with the members' read caps
+// alone when its conversation keeps no rosters, as one does that had members before rosters or
+// joined through such a reply. The newcomer joins anyway, as katzenqt's own joiner does, and
+// reads and is read by every member.
+func TestJoinsThroughAReplyWithoutRosters(t *testing.T) {
+	w := newWorld("alice", "bob", "carol")
+	foundAndJoin(t, w)
+	w.rosterless = map[int]bool{0: true}
+	induct(t, w, 0, 2, "g")
+	send(w, 2, "g", "carol here")
+	send(w, 0, "g", "hi carol")
+	send(w, 1, "g", "bob too")
+	if !w.runUntil(func() bool {
+		return w.says(0, "g", "carol here") && w.says(1, "g", "carol here") &&
+			w.says(2, "g", "hi carol") && w.says(2, "g", "bob too")
+	}, limit) {
+		t.Fatal("carol does not read or is not read by every member")
+	}
+}
+
 func TestThreeMembers(t *testing.T) {
 	w := newWorld("alice", "bob", "carol")
 	foundAndJoin(t, w)
