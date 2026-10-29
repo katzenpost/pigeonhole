@@ -41,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut cfg = Config::new(Keypair::load_or_generate(&*backend, &args.data_dir, "eliza").await?, args.data_dir.join("state"));
     cfg.display_name = "Eliza".into();
     cfg.advertise = !args.no_advertise;
-    cfg.poll_interval = Duration::from_secs_f64(args.poll_interval);
+    cfg.poll_interval = Duration::try_from_secs_f64(args.poll_interval).map_err(|e| format!("--poll_interval: {e}"))?;
     cfg.max_concurrent_sessions = args.max_sessions;
     let svc = Service::new(cfg, backend.clone())?;
     println!("{}", svc.id());
