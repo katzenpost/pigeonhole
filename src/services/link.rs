@@ -12,6 +12,9 @@ use crate::transport::Backend;
 use crate::transport::ServiceNode;
 use crate::services::wire::*;
 
+/// How long a client waits for one router before trying the next.
+const ROUTE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+
 /// Reads a router's or a directory's public key from what it published in
 /// the PKI.
 pub fn plugin_public_key(node: &ServiceNode) -> Result<PublicKey, Error> {
@@ -59,9 +62,10 @@ pub async fn route<B: Backend>(ph: &B, d: &ServiceDescriptor, voucher: &[u8]) ->
     let req = RouterRequest::Route(RouteRequest { service_id: d.id(), ciphertext });
     let mut last = Error::NoRouter;
     for r in &d.routers {
-        match router_request(ph, &r.node_id_hash, r.endpoint.as_bytes(), &req).await {
-            Ok(()) => return Ok(()),
-            Err(e) => last = e,
+        match tokio::time::timeout(ROUTE_TIMEOUT, router_request(ph, &r.node_id_hash, r.endpoint.as_bytes(), &req)).await {
+            Ok(Ok(())) => return Ok(()),
+            Ok(Err(e)) => last = e,
+            Err(_) => last = Error::Transport("router did not answer".into()),
         }
     }
     Err(last)
