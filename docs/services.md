@@ -31,7 +31,10 @@ sequenceDiagram
     Note over C,S: connection: each holds the other's read cap
 ```
 
-![The bootstrap of a connection](services.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="services-dark.svg">
+  <img alt="The bootstrap of a connection" src="services.svg">
+</picture>
 
 Afterwards the client and the service share a connection of two Pigeonhole
 streams, one written by each, and each holds the other's read cap. The
