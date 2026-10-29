@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     cfg.poll_interval = Duration::try_from_secs_f64(args.poll_interval).map_err(|e| format!("--poll_interval: {e}"))?;
     cfg.max_concurrent_sessions = args.max_sessions;
     let svc = Service::new(cfg, backend.clone())?;
-    println!("{}", svc.id());
+    log::info!("service id {}", svc.id());
 
     let run = {
         let svc = svc.clone();

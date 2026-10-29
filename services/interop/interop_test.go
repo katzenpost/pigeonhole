@@ -6,10 +6,8 @@
 package interop
 
 import (
-	"bufio"
 	"context"
 	"encoding/base64"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,6 +17,7 @@ import (
 	"time"
 
 	"github.com/fxamacker/cbor/v2"
+	"github.com/katzenpost/hpqc/nike/pem"
 	"github.com/stretchr/testify/require"
 
 	ps "github.com/katzenpost/katzenpost/pigeonservice"
@@ -114,19 +113,20 @@ func TestEliza(t *testing.T) {
 	logFile, err := os.Create(filepath.Join(n.dir, "eliza.log"))
 	require.NoError(t, err)
 	cmd.Stderr = logFile
-	stdout, err := cmd.StdoutPipe()
-	require.NoError(t, err)
 	require.NoError(t, cmd.Start())
 	t.Cleanup(func() {
 		_ = cmd.Process.Signal(os.Interrupt)
 		_ = cmd.Wait()
 	})
-	line, err := bufio.NewReader(stdout).ReadString('\n')
-	require.NoError(t, err)
-	raw, err := hex.DecodeString(strings.TrimSpace(line))
-	require.NoError(t, err)
-	require.Len(t, raw, 32)
-	id := ps.ServiceID(raw)
+	var id ps.ServiceID
+	for {
+		require.NoError(t, ctx.Err(), "eliza never wrote its public key")
+		if pub, err := pem.FromPublicPEMFile(filepath.Join(data, "eliza.public.pem"), ps.DefaultNIKE); err == nil {
+			id = ps.IDFromPublicKey(pub.Bytes())
+			break
+		}
+		time.Sleep(n.poll)
+	}
 	t.Logf("eliza is %x", id[:8])
 
 	ph := n.pigeonhole()
