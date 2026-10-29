@@ -10,7 +10,6 @@ use crate::services::handshake::{self, Pending};
 use crate::services::nike::{self, Keypair, PublicKey};
 use crate::transport::Backend;
 use crate::transport::ServiceNode;
-use crate::services::sealedbox;
 use crate::services::wire::*;
 
 /// Reads a router's or a directory's public key from what it published in
@@ -46,7 +45,8 @@ pub async fn register<B: Backend>(ph: &B, key: &Keypair, node: &ServiceNode) -> 
         voucher: pending.voucher.clone(),
         mac: None,
     };
-    crate::services::auth::sign_register(key, &router_pub, &mut req)?;
+    let ss = key.private.derive_secret(ph, &router_pub).await?;
+    crate::services::auth::sign_register(&ss, &router_pub.to_bytes(), &mut req)?;
     router_request(ph, &node.node_id_hash, &node.endpoint, &RouterRequest::Register(req)).await?;
     Ok(pending)
 }
@@ -55,7 +55,8 @@ pub async fn register<B: Backend>(ph: &B, key: &Keypair, node: &ServiceNode) -> 
 /// service's routers, trying each in turn until one accepts it.
 pub async fn route<B: Backend>(ph: &B, d: &ServiceDescriptor, voucher: &[u8]) -> Result<(), Error> {
     let service_pub = PublicKey::from_bytes(&d.public_key)?;
-    let req = RouterRequest::Route(RouteRequest { service_id: d.id(), ciphertext: sealedbox::seal(&service_pub, voucher)? });
+    let ciphertext = ph.box_seal(nike::SCHEME, &service_pub.to_bytes(), voucher).await?;
+    let req = RouterRequest::Route(RouteRequest { service_id: d.id(), ciphertext });
     let mut last = Error::NoRouter;
     for r in &d.routers {
         match router_request(ph, &r.node_id_hash, r.endpoint.as_bytes(), &req).await {
@@ -75,6 +76,6 @@ pub async fn dial<B: Backend>(ph: Arc<B>, d: &ServiceDescriptor, display_name: &
 }
 
 /// Opens a sealed voucher a router forwarded.
-pub(crate) fn open_forward(key: &Keypair, msg: &[u8]) -> Result<Vec<u8>, Error> {
-    sealedbox::open(&key.private, &key.public, &decode_link_message(msg)?)
+pub(crate) async fn open_forward<B: Backend>(ph: &B, key: &Keypair, msg: &[u8]) -> Result<Vec<u8>, Error> {
+    Ok(ph.box_open(nike::SCHEME, key.private.as_bytes(), &decode_link_message(msg)?).await?)
 }

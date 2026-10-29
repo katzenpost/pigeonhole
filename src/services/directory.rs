@@ -69,7 +69,8 @@ impl<B: Backend> Directory<B> {
     pub async fn advertise(&self, d: &ServiceDescriptor) -> Result<(), Error> {
         let key = self.service_key(d.id())?;
         let mut req = AdvertiseRequest { descriptor: d.clone(), seq: self.next_seq(), mac: None };
-        crate::services::auth::sign_advertise(key, &self.public, &mut req)?;
+        let ss = key.private.derive_secret(&*self.ph, &self.public).await?;
+        crate::services::auth::sign_advertise(&ss, &self.public.to_bytes(), &mut req)?;
         self.request(&DirectoryRequest::Advertise(req)).await.map(|_| ())
     }
 
@@ -77,7 +78,8 @@ impl<B: Backend> Directory<B> {
     pub async fn withdraw(&self, id: ServiceId) -> Result<(), Error> {
         let key = self.service_key(id)?;
         let mut req = WithdrawRequest { service_id: id, seq: self.next_seq(), mac: None };
-        crate::services::auth::sign_withdraw(key, &self.public, &mut req)?;
+        let ss = key.private.derive_secret(&*self.ph, &self.public).await?;
+        crate::services::auth::sign_withdraw(&ss, &self.public.to_bytes(), &key.public.to_bytes(), &mut req)?;
         self.request(&DirectoryRequest::Withdraw(req)).await.map(|_| ())
     }
 

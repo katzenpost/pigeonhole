@@ -292,6 +292,23 @@ impl Backend for ThinClientBackend {
         }
     }
 
+    async fn nike_generate_key_pair(&self, scheme: &str) -> Result<(Vec<u8>, Secret)> {
+        let kp = self.client.nike_generate_key_pair(scheme).await.map_err(err)?;
+        Ok((kp.public_key, kp.private_key.into()))
+    }
+
+    async fn nike_derive_secret(&self, scheme: &str, private: &[u8], public: &[u8]) -> Result<Secret> {
+        Ok(self.client.nike_derive_secret(scheme, private, public).await.map_err(err)?.into())
+    }
+
+    async fn box_seal(&self, scheme: &str, public: &[u8], plaintext: &[u8]) -> Result<Vec<u8>> {
+        self.client.box_seal(scheme, public, plaintext).await.map_err(err)
+    }
+
+    async fn box_open(&self, scheme: &str, private: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>> {
+        self.client.box_open(scheme, private, ciphertext).await.map_err(err)
+    }
+
     async fn services(&self, capability: &str) -> Result<Vec<ServiceNode>> {
         let descs = match self.client.get_services(capability).await {
             Ok(d) => d,

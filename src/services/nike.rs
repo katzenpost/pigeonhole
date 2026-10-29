@@ -1,124 +1,73 @@
 //! The X25519 and CTIDH-1024 hybrid NIKE that services, routers and
-//! directories key themselves with. Keys and shared secrets are laid out as
-//! hpqc's `hybrid.X25519CTIDH1024`: the X25519 part first, then CTIDH.
+//! directories key themselves with, hpqc's `hybrid.X25519CTIDH1024`. Keys
+//! are opaque bytes: the client daemon generates them and does every
+//! operation with them, through [`Backend`].
 
 use std::path::Path;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use rand::rngs::OsRng;
-use subtle::ConstantTimeEq;
 use zeroize::Zeroizing;
 
 use crate::services::Error;
+use crate::transport::{Backend, Secret};
 
 /// The scheme's name, as hpqc spells it.
 pub const SCHEME: &str = "X25519-CTIDH1024";
 
-const X25519_SIZE: usize = 32;
-/// Size of a serialized public key.
-pub const PUBLIC_KEY_SIZE: usize = X25519_SIZE + crate::highctidh::PUBLIC_KEY_SIZE;
+/// Size of a serialized public key: X25519's, then CTIDH-1024's.
+pub const PUBLIC_KEY_SIZE: usize = 32 + 128;
 /// Size of a serialized private key.
-pub const PRIVATE_KEY_SIZE: usize = X25519_SIZE + crate::highctidh::PRIVATE_KEY_SIZE;
+pub const PRIVATE_KEY_SIZE: usize = 32 + 130;
 
 /// A hybrid public key.
 #[derive(Clone, PartialEq, Eq)]
-pub struct PublicKey {
-    x25519: x25519_dalek::PublicKey,
-    ctidh: crate::highctidh::PublicKey,
-}
+pub struct PublicKey(Vec<u8>);
 
 impl PublicKey {
-    /// Decodes a public key, validating its CTIDH part.
+    /// Decodes a public key. The daemon validates it when it is used.
     pub fn from_bytes(b: &[u8]) -> Result<Self, Error> {
         if b.len() != PUBLIC_KEY_SIZE {
             return Err(Error::InvalidKey);
         }
-        let x: [u8; X25519_SIZE] = b[..X25519_SIZE].try_into().unwrap();
-        Ok(PublicKey {
-            x25519: x.into(),
-            ctidh: crate::highctidh::PublicKey::from_bytes(&b[X25519_SIZE..]).map_err(|_| Error::InvalidKey)?,
-        })
+        Ok(PublicKey(b.to_vec()))
     }
 
     /// Encodes the public key.
     pub fn to_bytes(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(PUBLIC_KEY_SIZE);
-        out.extend_from_slice(self.x25519.as_bytes());
-        out.extend_from_slice(&self.ctidh.to_bytes());
-        out
+        self.0.clone()
     }
 }
 
 impl std::fmt::Debug for PublicKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "PublicKey({:02x?}…)", &self.x25519.as_bytes()[..4])
+        write!(f, "PublicKey({:02x?}…)", &self.0[..4])
     }
 }
 
-/// A hybrid private key.
+/// A hybrid private key, in guarded memory.
 #[derive(Clone)]
-pub struct PrivateKey {
-    x25519: x25519_dalek::StaticSecret,
-    ctidh: crate::highctidh::PrivateKey,
-}
+pub struct PrivateKey(Secret);
 
 impl PrivateKey {
-    /// Generates a private key.
-    pub fn generate() -> Self {
-        PrivateKey {
-            x25519: x25519_dalek::StaticSecret::random_from_rng(OsRng),
-            ctidh: crate::highctidh::PrivateKey::generate(),
-        }
-    }
-
     /// Decodes a private key.
     pub fn from_bytes(b: &[u8]) -> Result<Self, Error> {
         if b.len() != PRIVATE_KEY_SIZE {
             return Err(Error::InvalidKey);
         }
-        let x: Zeroizing<[u8; X25519_SIZE]> = Zeroizing::new(b[..X25519_SIZE].try_into().unwrap());
-        Ok(PrivateKey {
-            x25519: x25519_dalek::StaticSecret::from(*x),
-            ctidh: crate::highctidh::PrivateKey::from_bytes(&b[X25519_SIZE..]).map_err(|_| Error::InvalidKey)?,
-        })
+        Ok(PrivateKey(Secret::new(b)))
     }
 
-    /// Encodes the private key.
-    pub fn to_bytes(&self) -> Zeroizing<Vec<u8>> {
-        let mut out = Zeroizing::new(Vec::with_capacity(PRIVATE_KEY_SIZE));
-        out.extend_from_slice(self.x25519.as_bytes());
-        out.extend_from_slice(&self.ctidh.to_bytes());
-        out
+    /// The private key's bytes.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
     }
 
-    /// Returns the public key.
-    pub fn public_key(&self) -> PublicKey {
-        PublicKey {
-            x25519: (&self.x25519).into(),
-            ctidh: self.ctidh.public_key(),
-        }
+    /// Computes the shared secret with `peer`. A degenerate secret is an
+    /// error.
+    pub async fn derive_secret<B: Backend>(&self, ph: &B, peer: &PublicKey) -> Result<Secret, Error> {
+        Ok(ph.nike_derive_secret(SCHEME, &self.0, &peer.0).await?)
     }
-
-    /// Computes the shared secret with `peer`: the X25519 secret followed by
-    /// the CTIDH secret. A degenerate secret, where either part is all
-    /// zeros, is an error.
-    pub fn derive_secret(&self, peer: &PublicKey) -> Result<Zeroizing<Vec<u8>>, Error> {
-        let x = self.x25519.diffie_hellman(&peer.x25519);
-        let c = Zeroizing::new(self.ctidh.derive_secret(&peer.ctidh).map_err(|_| Error::DegenerateSecret)?);
-        if is_zero(x.as_bytes()) || is_zero(&c[..]) {
-            return Err(Error::DegenerateSecret);
-        }
-        let mut out = Zeroizing::new(Vec::with_capacity(X25519_SIZE + c.len()));
-        out.extend_from_slice(x.as_bytes());
-        out.extend_from_slice(&c[..]);
-        Ok(out)
-    }
-}
-
-fn is_zero(b: &[u8]) -> bool {
-    let zeros = vec![0u8; b.len()];
-    b.ct_eq(&zeros).into()
 }
 
 /// A keypair.
@@ -130,29 +79,26 @@ pub struct Keypair {
 
 impl Keypair {
     /// Generates a keypair.
-    pub fn generate() -> Self {
-        let private = PrivateKey::generate();
-        Keypair { public: private.public_key(), private }
+    pub async fn generate<B: Backend>(ph: &B) -> Result<Self, Error> {
+        let (public, private) = ph.nike_generate_key_pair(SCHEME).await?;
+        Ok(Keypair { public: PublicKey::from_bytes(&public)?, private: PrivateKey::from_bytes(&private)? })
     }
 
     /// Loads the keypair stored as `name.private.pem` and `name.public.pem`
     /// in `dir`, in hpqc's PEM format, or generates and stores one if
     /// neither file exists.
-    pub fn load_or_generate(dir: &Path, name: &str) -> Result<Self, Error> {
+    pub async fn load_or_generate<B: Backend>(ph: &B, dir: &Path, name: &str) -> Result<Self, Error> {
         let priv_file = dir.join(format!("{name}.private.pem"));
         let pub_file = dir.join(format!("{name}.public.pem"));
         match (priv_file.exists(), pub_file.exists()) {
             (true, true) => {
                 let private = PrivateKey::from_bytes(&read_pem(&priv_file, "PRIVATE KEY")?)?;
                 let public = PublicKey::from_bytes(&read_pem(&pub_file, "PUBLIC KEY")?)?;
-                if private.public_key() != public {
-                    return Err(Error::Other("stored public key does not match the private key".into()));
-                }
                 Ok(Keypair { public, private })
             }
             (false, false) => {
-                let kp = Keypair::generate();
-                write_pem(&priv_file, "PRIVATE KEY", &kp.private.to_bytes(), 0o600)?;
+                let kp = Keypair::generate(ph).await?;
+                write_pem(&priv_file, "PRIVATE KEY", kp.private.as_bytes(), 0o600)?;
                 write_pem(&pub_file, "PUBLIC KEY", &kp.public.to_bytes(), 0o644)?;
                 Ok(kp)
             }
