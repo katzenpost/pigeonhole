@@ -51,6 +51,8 @@ pub struct Config {
     /// How long a registration with a router has to complete before it is
     /// abandoned and retried on the next rescan.
     pub register_timeout: Duration,
+    /// How long [`Service::run`] waits for a client's handshake.
+    pub handshake_timeout: Duration,
     /// How often the service looks for new routers.
     pub rescan_interval: Duration,
 }
@@ -67,6 +69,7 @@ impl Config {
             max_concurrent_sessions: 64,
             retention: Duration::from_secs(7 * 24 * 3600),
             register_timeout: Duration::from_secs(15 * 60),
+            handshake_timeout: Duration::from_secs(10 * 60),
             rescan_interval: Duration::from_secs(10 * 60),
         }
     }
@@ -307,10 +310,14 @@ impl<B: Backend> Service<B> {
             let inner = self.inner.clone();
             self.inner.spawn(async move {
                 let _permit = permit;
-                let session = match incoming.handshake().await {
-                    Ok(s) => s,
-                    Err(e) => {
+                let session = match tokio::time::timeout(inner.cfg.handshake_timeout, incoming.handshake()).await {
+                    Ok(Ok(s)) => s,
+                    Ok(Err(e)) => {
                         log::warn!("handshake with a client: {e}");
+                        return;
+                    }
+                    Err(_) => {
+                        log::warn!("handshake with a client timed out");
                         return;
                     }
                 };

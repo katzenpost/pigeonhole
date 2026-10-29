@@ -129,3 +129,20 @@ async fn dial_falls_back_to_another_router() {
     assert_eq!(within(conn.recv()).await.unwrap(), b"echo: x");
     svc.close().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn bogus_voucher_does_not_hold_a_slot() {
+    let net = world();
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = config(&net, dir.path()).await;
+    cfg.max_concurrent_sessions = 1;
+    cfg.handshake_timeout = Duration::from_secs(2);
+    let svc = echo(&net, cfg);
+    let d = lookup_linked(&net, svc.id(), 2).await;
+    // Nobody ever writes box 0 for this voucher.
+    within(pigeonhole_protocols::services::route(&net, &d, &[0; 32])).await.unwrap();
+    let conn = within(dial(Arc::new(net.clone()), &d, "alice", POLL)).await.unwrap();
+    conn.send(b"hi").await.unwrap();
+    assert_eq!(within(conn.recv()).await.unwrap(), b"echo: hi");
+    svc.close().await;
+}
