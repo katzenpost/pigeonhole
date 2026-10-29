@@ -89,6 +89,7 @@ async fn run<B: Backend>(a: &Args, backend: B) -> Result<(), Box<dyn Error>> {
         name: a.name.clone(),
         epoch_poll: Duration::from_secs(60),
         no_sync: false,
+        key: None,
     };
     let c = Client::open(cfg, backend).await?;
 

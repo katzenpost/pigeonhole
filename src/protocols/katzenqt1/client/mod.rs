@@ -3,6 +3,7 @@
 
 mod chat;
 pub mod exec;
+pub mod seal;
 pub mod store;
 
 pub use chat::{ChatView, Client, ClientError, Config, Event, LineView, MemberView};
