@@ -53,7 +53,7 @@ pub struct Config {
     /// How long a registration with a router has to complete before it is
     /// abandoned and retried on the next rescan.
     pub register_timeout: Duration,
-    /// How long [`Service::run`] waits for a client's handshake.
+    /// How long a client's handshake may take.
     pub handshake_timeout: Duration,
     /// How often the service looks for new routers.
     pub rescan_interval: Duration,
@@ -126,9 +126,16 @@ impl<B: Backend> Incoming<B> {
         match self.arrival {
             Arrival::Ready(s) => Ok(s),
             Arrival::Voucher(v) => {
-                let cfg = &self.inner.cfg;
-                let conn = handshake::induct(self.inner.ph.clone(), &v, &cfg.display_name, cfg.poll_interval).await?;
-                Ok(self.inner.add_session(conn))
+                let inner = &self.inner;
+                let cfg = &inner.cfg;
+                let res = tokio::time::timeout(cfg.handshake_timeout, handshake::induct(inner.ph.clone(), &v, &cfg.display_name, cfg.poll_interval)).await;
+                let session = match res {
+                    Ok(Ok(conn)) => Ok(inner.add_session(conn)),
+                    Ok(Err(e)) => Err(e),
+                    Err(_) => Err(Error::Other("handshake timed out".into())),
+                };
+                inner.forget_voucher(&v);
+                session
             }
         }
     }
@@ -145,6 +152,9 @@ struct State<B: Backend> {
     sessions: HashMap<[u8; 16], Arc<Conn<B>>>,
     offers: HashMap<[u8; 32], Pending>,
     vouchers: HashMap<[u8; 32], Instant>,
+    /// Vouchers read from links and not yet handled when the service last
+    /// stopped.
+    unhandled: Vec<Vec<u8>>,
     listening: bool,
 }
 
@@ -185,6 +195,7 @@ impl<B: Backend> Service<B> {
             sessions: HashMap::new(),
             offers: HashMap::new(),
             vouchers: HashMap::new(),
+            unhandled: Vec::new(),
             listening: false,
         };
         for raw in store.load(LINKS)? {
@@ -201,6 +212,10 @@ impl<B: Backend> Service<B> {
         for raw in store.load(OFFERS)? {
             let p = Pending::decode(&raw)?;
             state.offers.insert(hash(&p.voucher), p);
+        }
+        for v in store.load(VOUCHERS)? {
+            state.vouchers.insert(hash(&v), Instant::now());
+            state.unhandled.push(v);
         }
         Ok(Service {
             inner: Arc::new(Inner {
@@ -234,7 +249,7 @@ impl<B: Backend> Service<B> {
     /// returns.
     pub fn listen(&self) -> Result<(), Error> {
         let inner = &self.inner;
-        let (links, sessions, offers) = {
+        let (links, sessions, offers, unhandled) = {
             let mut st = inner.state.lock().unwrap();
             if st.listening {
                 return Err(Error::Other("already listening".into()));
@@ -244,6 +259,7 @@ impl<B: Backend> Service<B> {
                 st.links.values().cloned().collect::<Vec<_>>(),
                 st.sessions.iter().map(|(id, c)| (*id, c.clone())).collect::<Vec<_>>(),
                 st.offers.values().cloned().collect::<Vec<_>>(),
+                std::mem::take(&mut st.unhandled),
             )
         };
         let restored: Vec<Session<B>> = sessions
@@ -257,6 +273,11 @@ impl<B: Backend> Service<B> {
         inner.spawn(async move {
             for s in restored {
                 if i.incoming_tx.send(Arrival::Ready(s)).await.is_err() {
+                    return;
+                }
+            }
+            for v in unhandled {
+                if i.incoming_tx.send(Arrival::Voucher(v)).await.is_err() {
                     return;
                 }
             }
@@ -297,7 +318,7 @@ impl<B: Backend> Service<B> {
     {
         self.listen()?;
         let handler = Arc::new(handler);
-        let sem = Arc::new(Semaphore::new(self.inner.cfg.max_concurrent_sessions));
+        let sem = Arc::new(Semaphore::new(self.inner.cfg.max_concurrent_sessions.max(1)));
         loop {
             let incoming = match self.accept().await {
                 Ok(i) => i,
@@ -312,20 +333,16 @@ impl<B: Backend> Service<B> {
             let inner = self.inner.clone();
             self.inner.spawn(async move {
                 let _permit = permit;
-                let session = match tokio::time::timeout(inner.cfg.handshake_timeout, incoming.handshake()).await {
-                    Ok(Ok(s)) => s,
-                    Ok(Err(e)) => {
+                let session = match incoming.handshake().await {
+                    Ok(s) => s,
+                    Err(e) => {
                         log::warn!("handshake with a client: {e}");
                         return;
                     }
-                    Err(_) => {
-                        log::warn!("handshake with a client timed out");
-                        return;
-                    }
                 };
-                let (id, conn) = (session.id, session.conn.clone());
+                // Ends the session when the handler returns or panics.
+                let _end = EndSession(inner, session.id, session.conn.clone());
                 handler(session).await;
-                inner.drop_session(&id, &conn);
             });
         }
     }
@@ -359,6 +376,14 @@ impl<B: Backend> Service<B> {
         self.inner.shutdown.cancel();
         self.inner.tasks.close();
         self.inner.tasks.wait().await;
+    }
+}
+
+struct EndSession<B: Backend>(Arc<Inner<B>>, [u8; 16], Arc<Conn<B>>);
+
+impl<B: Backend> Drop for EndSession<B> {
+    fn drop(&mut self) {
+        self.0.drop_session(&self.1, &self.2);
     }
 }
 
@@ -463,14 +488,15 @@ impl<B: Backend> Inner<B> {
         }
     }
 
+    fn forget_voucher(&self, voucher: &[u8]) {
+        if let Err(e) = self.store.delete(VOUCHERS, &hash(voucher)) {
+            log::error!("forgetting a voucher: {e}");
+        }
+    }
+
+    /// Starts reading a link. read_link saves the link itself, after
+    /// storing each voucher it reads, so a crash loses none.
     fn start_link(self: &Arc<Self>, l: Arc<LinkState<B>>) {
-        let weak = Arc::downgrade(self);
-        let node = l.node.clone();
-        l.conn.on_change(Some(Arc::new(move |st: &ConnState| {
-            if let Some(inner) = weak.upgrade() {
-                inner.save_link(&node, st);
-            }
-        })));
         let inner = self.clone();
         self.spawn(async move { inner.read_link(l).await });
     }
@@ -482,19 +508,30 @@ impl<B: Backend> Inner<B> {
                 Ok(m) => m,
                 Err(e) => {
                     log::error!("reading a link: {e}");
+                    // Forget it so the next rescan registers again.
+                    self.state.lock().unwrap().links.remove(&l.node.node_id_hash);
+                    if let Err(e) = self.store.delete(LINKS, &l.node.node_id_hash) {
+                        log::error!("deleting a link: {e}");
+                    }
                     return;
                 }
             };
             let voucher = match open_forward(&*self.ph, &self.cfg.key, &msg).await {
-                Ok(v) => v,
+                Ok(v) if v.len() == 32 && !self.seen(&v) => v,
+                Ok(_) => {
+                    self.save_link(&l.node, &l.conn.state());
+                    continue;
+                }
                 Err(e) => {
                     log::warn!("a router forwarded something that does not open: {e}");
+                    self.save_link(&l.node, &l.conn.state());
                     continue;
                 }
             };
-            if voucher.len() != 32 || self.seen(&voucher) {
-                continue;
+            if let Err(e) = self.store.put(VOUCHERS, &hash(&voucher), &voucher) {
+                log::error!("saving a voucher: {e}");
             }
+            self.save_link(&l.node, &l.conn.state());
             if self.incoming_tx.send(Arrival::Voucher(voucher)).await.is_err() {
                 return;
             }
@@ -603,6 +640,7 @@ fn hex8(b: &[u8]) -> String {
 const LINKS: &str = "links";
 const SESSIONS: &str = "sessions";
 const OFFERS: &str = "offers";
+const VOUCHERS: &str = "vouchers";
 
 type Stored = (Vec<u8>, Vec<u8>);
 
@@ -614,7 +652,7 @@ struct Store {
 impl Store {
     fn open(dir: &Path) -> Result<Self, Error> {
         // The state holds stream capabilities, voucher secrets and plaintext.
-        for sub in [LINKS, SESSIONS, OFFERS] {
+        for sub in [LINKS, SESSIONS, OFFERS, VOUCHERS] {
             std::fs::create_dir_all(dir.join(sub))?;
             std::fs::set_permissions(dir.join(sub), std::fs::Permissions::from_mode(0o700))?;
         }

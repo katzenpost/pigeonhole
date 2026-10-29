@@ -154,3 +154,23 @@ async fn bogus_voucher_does_not_hold_a_slot() {
     assert_eq!(within(conn.recv()).await.unwrap(), b"echo: hi");
     svc.close().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn voucher_survives_restart() {
+    let net = Arc::new(world());
+    let dir = tempfile::tempdir().unwrap();
+    let svc = Service::new(config(&net, dir.path()).await, net.clone()).unwrap();
+    svc.listen().unwrap();
+    let d = lookup_linked(&net, svc.id(), 2).await;
+    let pending = mint(&*net, "alice").await.unwrap();
+    within(pigeonhole_protocols::services::route(&*net, &d, &pending.voucher)).await.unwrap();
+    // Read from the link but never handled.
+    let _ = within(svc.accept()).await.unwrap();
+    svc.close().await;
+
+    let svc = echo(&net, config(&net, dir.path()).await);
+    let conn = within(pending.wait(net.clone(), POLL)).await.unwrap();
+    conn.send(b"hi").await.unwrap();
+    assert_eq!(within(conn.recv()).await.unwrap(), b"echo: hi");
+    svc.close().await;
+}
