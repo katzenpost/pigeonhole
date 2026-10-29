@@ -122,8 +122,16 @@ async fn dial_falls_back_to_another_router() {
     let dir = tempfile::tempdir().unwrap();
     let svc = echo(&net, config(&net, dir.path()).await);
     let mut d = lookup_linked(&net, svc.id(), 2).await;
-    // The first "router" is the directory, which refuses a router request.
-    d.routers.insert(0, pigeonhole_protocols::services::wire::RouterRef { node_id_hash: [0xdd; 32], endpoint: "service_directory".into() });
+    // A router the service never linked with answers UnknownService.
+    add_router(&net, [0xee; 32]);
+    // One the PKI does not list, as a lying directory might name, is
+    // skipped: this one would acknowledge the voucher and drop it.
+    net.add_service("evil", [0xbb; 32], "evil", Default::default(), std::sync::Arc::new(|_| {
+        Box::pin(async { pigeonhole_protocols::services::wire::encode_router_reply(pigeonhole_protocols::services::wire::Status::Ok) })
+    }));
+    use pigeonhole_protocols::services::wire::RouterRef;
+    d.routers.insert(0, RouterRef { node_id_hash: [0xee; 32], endpoint: "voucher_router".into() });
+    d.routers.insert(0, RouterRef { node_id_hash: [0xbb; 32], endpoint: "evil".into() });
     let conn = within(dial(Arc::new(net.clone()), &d, "carol", POLL)).await.unwrap();
     conn.send(b"x").await.unwrap();
     assert_eq!(within(conn.recv()).await.unwrap(), b"echo: x");

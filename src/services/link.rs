@@ -60,8 +60,10 @@ pub async fn route<B: Backend>(ph: &B, d: &ServiceDescriptor, voucher: &[u8]) ->
     let service_pub = PublicKey::from_bytes(&d.public_key)?;
     let ciphertext = ph.box_seal(nike::SCHEME, &service_pub.to_bytes(), voucher).await?;
     let req = RouterRequest::Route(RouteRequest { service_id: d.id(), ciphertext });
+    // Descriptors come from untrusted directories: only try routers the PKI lists.
+    let in_pki: Vec<_> = ph.services(ROUTER_CAPABILITY).await?.into_iter().map(|n| (n.node_id_hash, n.endpoint)).collect();
     let mut last = Error::NoRouter;
-    for r in &d.routers {
+    for r in d.routers.iter().filter(|r| in_pki.contains(&(r.node_id_hash, r.endpoint.as_bytes().to_vec()))) {
         match tokio::time::timeout(ROUTE_TIMEOUT, router_request(ph, &r.node_id_hash, r.endpoint.as_bytes(), &req)).await {
             Ok(Ok(())) => return Ok(()),
             Ok(Err(e)) => last = e,
