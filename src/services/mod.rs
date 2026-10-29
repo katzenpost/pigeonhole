@@ -19,6 +19,7 @@ pub mod handshake;
 pub mod link;
 pub mod nike;
 pub mod pigeonhole;
+pub mod sealedbox;
 pub mod service;
 pub mod testkit;
 pub mod wire;

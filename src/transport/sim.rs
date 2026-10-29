@@ -256,44 +256,6 @@ impl Backend for World {
     async fn services(&self, capability: &str) -> Result<Vec<ServiceNode>> {
         Ok(self.0.lock().unwrap().services.get(capability).cloned().unwrap_or_default())
     }
-
-    // A NIKE and sealed boxes without cryptography, the sizes of X25519-CTIDH1024's: a public key
-    // is a hash of the private key, a shared secret a hash of both public keys, and a box the
-    // recipient's public key and then the plaintext.
-
-    async fn nike_generate_key_pair(&self, _scheme: &str) -> Result<(Vec<u8>, Secret)> {
-        let (public, private) = nike_keypair();
-        Ok((public, private.into()))
-    }
-
-    async fn nike_derive_secret(&self, _scheme: &str, private: &[u8], public: &[u8]) -> Result<Secret> {
-        let ours = nike_public(private);
-        let (a, b) = if ours <= public.to_vec() { (ours, public.to_vec()) } else { (public.to_vec(), ours) };
-        Ok(hkdf(&[a, b].concat(), b"sim nike secret", 32).into())
-    }
-
-    async fn box_seal(&self, _scheme: &str, public: &[u8], plaintext: &[u8]) -> Result<Vec<u8>> {
-        Ok([public, plaintext].concat())
-    }
-
-    async fn box_open(&self, _scheme: &str, private: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>> {
-        let public = nike_public(private);
-        match ciphertext.strip_prefix(public.as_slice()) {
-            Some(plaintext) => Ok(plaintext.to_vec()),
-            None => Err(Error::Other("sim: box sealed to another key".into())),
-        }
-    }
-}
-
-fn nike_public(private: &[u8]) -> Vec<u8> {
-    hkdf(private, b"sim nike public", 160)
-}
-
-/// A keypair of the sim's NIKE, as its public and private keys.
-pub fn nike_keypair() -> (Vec<u8>, Vec<u8>) {
-    let mut private = vec![0u8; 162];
-    rand::thread_rng().fill_bytes(&mut private);
-    (nike_public(&private), private)
 }
 
 #[cfg(test)]
