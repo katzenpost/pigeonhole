@@ -8,6 +8,9 @@ use std::sync::LazyLock;
 pub const GREETING: &str = "How do you do. Please tell me your problem.";
 
 const MAX_MEMORY: usize = 8;
+/// Bounds the words matched: `*` patterns backtrack, so matching grows
+/// with a power of the word count.
+const MAX_WORDS: usize = 100;
 
 /// One conversation. It rotates through each decomposition's reassemblies
 /// and remembers things the user said about themselves to bring up later.
@@ -25,7 +28,8 @@ impl Conversation {
     /// Answers one line.
     pub fn reply(&mut self, input: &str) -> String {
         let script = &*SCRIPT;
-        let words = script.normalize(input);
+        let mut words = script.normalize(input);
+        words.truncate(MAX_WORDS);
         if words.is_empty() {
             return "Please say something.".into();
         }
@@ -589,6 +593,13 @@ reasmb: Is your family important to you?
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn long_input_is_answered_quickly() {
+        let start = std::time::Instant::now();
+        super::Conversation::new().reply(&"you ".repeat(250_000));
+        assert!(start.elapsed() < std::time::Duration::from_secs(5));
+    }
+
     use super::*;
 
     #[test]
