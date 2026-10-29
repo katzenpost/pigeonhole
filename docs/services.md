@@ -31,6 +31,8 @@ sequenceDiagram
     Note over C,S: connection: each holds the other's read cap
 ```
 
+![The bootstrap of a connection](services.svg)
+
 Afterwards the client and the service share a connection of two Pigeonhole
 streams, one written by each, and each holds the other's read cap. The
 router and the directory take no further part. Every party reaches the
