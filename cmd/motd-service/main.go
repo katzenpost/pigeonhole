@@ -84,7 +84,7 @@ func main() {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 			err = svc.Run(ctx, ps.HandlerFunc(func(ctx context.Context, s *ps.Session) {
-				_ = motd.Serve(ctx, s, source)
+				_ = motd.Serve(ctx, s, source, motd.SystemClock{})
 			}))
 			if ctx.Err() != nil {
 				return nil

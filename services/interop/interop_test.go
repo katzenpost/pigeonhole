@@ -104,7 +104,7 @@ func TestMOTD(t *testing.T) {
 	}, ph)
 	require.NoError(t, err)
 	go svc.Run(ctx, ps.HandlerFunc(func(ctx context.Context, s *ps.Session) {
-		_ = motd.Serve(ctx, s, func() (string, error) { return "hello from localnet", nil })
+		_ = motd.Serve(ctx, s, func() (string, error) { return "hello from localnet", nil }, motd.SystemClock{})
 	}))
 	t.Cleanup(func() { cancel(); svc.Close() })
 

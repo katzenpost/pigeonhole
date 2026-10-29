@@ -24,8 +24,27 @@ type Reply struct {
 // Source returns the current message of the day.
 type Source func() (string, error)
 
-// Serve answers one client's requests until the session ends.
-func Serve(ctx context.Context, s *ps.Session, source Source) error {
+// Conn is one end of a connection: a *pigeonservice.Session on the service's side, a
+// *pigeonservice.Conn on the client's.
+type Conn interface {
+	Recv(ctx context.Context) ([]byte, error)
+	Send(ctx context.Context, msg []byte) error
+}
+
+// Clock tells the time a reply is dated by.
+type Clock interface {
+	Now() time.Time
+}
+
+// SystemClock is the system's clock.
+type SystemClock struct{}
+
+// Now returns the current time.
+func (SystemClock) Now() time.Time { return time.Now() }
+
+// Serve answers one client's requests until the connection ends. A request that does not
+// decode is ignored.
+func Serve(ctx context.Context, s Conn, source Source, clock Clock) error {
 	for {
 		raw, err := s.Recv(ctx)
 		if err != nil {
@@ -39,7 +58,7 @@ func Serve(ctx context.Context, s *ps.Session, source Source) error {
 		if err != nil {
 			return err
 		}
-		reply, err := ps.Marshal(&Reply{Message: msg, Day: time.Now().UTC().Format(time.DateOnly)})
+		reply, err := ps.Marshal(&Reply{Message: msg, Day: clock.Now().UTC().Format(time.DateOnly)})
 		if err != nil {
 			return err
 		}

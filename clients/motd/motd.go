@@ -14,7 +14,7 @@ import (
 var ErrBadReply = errors.New("motd: bad reply")
 
 // Fetch asks for the message of the day over a connection to the service.
-func Fetch(ctx context.Context, conn *ps.Conn) (*motd.Reply, error) {
+func Fetch(ctx context.Context, conn motd.Conn) (*motd.Reply, error) {
 	req, err := ps.Marshal(&motd.Request{})
 	if err != nil {
 		return nil, err
