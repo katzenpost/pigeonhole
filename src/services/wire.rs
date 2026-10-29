@@ -185,7 +185,11 @@ pub fn encode_router_reply(status: Status) -> Vec<u8> {
 
 /// A router's or a directory's reply status.
 pub fn decode_status(raw: &[u8]) -> Result<u8, Error> {
-    Ok(Fields::of(&cbor::decode(raw)?)?.uint("Status")? as u8)
+    status(&Fields::of(&cbor::decode(raw)?)?)
+}
+
+fn status(f: &Fields) -> Result<u8, Error> {
+    u8::try_from(f.uint("Status")?).map_err(|_| Error::Decode("Status: out of range".into()))
 }
 
 /// Encodes one box on a router→service link.
@@ -328,7 +332,7 @@ impl DirectoryReply {
         let v = cbor::decode(raw)?;
         let f = Fields::of(&v)?;
         Ok(DirectoryReply {
-            status: f.uint("Status")? as u8,
+            status: status(&f)?,
             descriptor: f.get("Descriptor").map(ServiceDescriptor::from_value).transpose()?,
             read_cap: f.bytes("ReadCap")?,
             start_index: f.bytes("StartIndex")?,
