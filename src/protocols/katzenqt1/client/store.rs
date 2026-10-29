@@ -2,23 +2,26 @@
 //! lines kept one by one, and the files lines and uploads carry beside it. A step's changes are
 //! saved in one transaction, synced to disk before [`Store::commit`] returns.
 //!
-//! Given a key, the store seals every value and file it keeps, each bound to where it is kept;
-//! what stays readable is how many conversations and lines there are, their ids and sizes.
+//! Given a key, the store keeps the database in memory instead, and after every commit seals the
+//! whole of it into one file, `state.sealed`; each file beside it is sealed whole too. Nothing of
+//! what they hold can be read without the key.
 
 use std::collections::HashMap;
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 
 use crate::protocols::katzenqt1::engine::*;
 use crate::protocols::katzenqt1::member::trace;
 use crate::transport::Secret;
 use redb::{Database, Durability, ReadableTable, TableDefinition};
 use serde_json::{Value, json};
-use zeroize::Zeroizing;
 
 use crate::protocols::katzenqt1::client::exec::Files;
-use crate::protocols::katzenqt1::client::seal::{self, place};
+use crate::protocols::katzenqt1::client::sealed_file::{
+    Backend, SealedFile, Unopened, is_sealed, open_file, seal_file, write_in_place,
+};
 
 const META: TableDefinition<&str, &[u8]> = TableDefinition::new("meta");
 const RECORDS: TableDefinition<&str, &[u8]> = TableDefinition::new("records");
@@ -29,7 +32,7 @@ const VERSION: &[u8] = &[1];
 pub enum StoreError {
     /// The state is sealed, and not with the key given, or none was given; or it was changed.
     Locked,
-    /// The state is not sealed but a key was given: [`Store::reseal`] seals it.
+    /// The state is not sealed, or not all of it, but a key was given: [`Store::reseal`] seals it.
     Unsealed,
     Other(String),
 }
@@ -50,6 +53,11 @@ fn e(x: impl std::fmt::Display) -> StoreError {
     StoreError::Other(x.to_string())
 }
 
+const PLAIN: &str = "state.redb";
+const SEALED: &str = "state.sealed";
+/// Left while [`Store::reseal`] is sealing a state, so that one cut short is finished.
+const SEALING: &str = ".sealing";
+
 pub type Result<T> = std::result::Result<T, StoreError>;
 
 #[derive(Clone, Debug, Default)]
@@ -67,6 +75,11 @@ pub struct Store {
     opts: Options,
     /// Each conversation's record as last saved, so that one unchanged is not written.
     saved: HashMap<ChatId, Vec<u8>>,
+    /// The database, when the state is sealed.
+    sealed: Option<Arc<SealedFile>>,
+    /// Held while the store is open, as redb holds its file when the state is not sealed: one
+    /// store at a time.
+    _lock: Option<std::fs::File>,
 }
 
 fn h(b: &[u8]) -> Value {
@@ -279,22 +292,19 @@ fn sync_dir(dir: &Path) -> std::io::Result<()> {
     std::fs::File::open(dir)?.sync_all()
 }
 
-fn line_place(id: &str, n: u64) -> Vec<u8> {
-    place("lines", &[id.as_bytes(), &n.to_be_bytes()])
-}
-
-fn seal_with(key: &Option<Secret>, aad: &[u8], plain: &[u8]) -> Vec<u8> {
-    match key {
-        Some(k) => seal::seal(k, aad, plain),
-        None => plain.to_vec(),
+/// Write over a file and remove it. Flash storage may keep its old blocks anyway.
+fn wipe(p: &Path) -> std::io::Result<()> {
+    let len = std::fs::metadata(p)?.len();
+    let mut f = std::fs::OpenOptions::new().write(true).open(p)?;
+    let zeros = vec![0u8; 64 * 1024];
+    let mut left = len;
+    while left > 0 {
+        let n = left.min(zeros.len() as u64) as usize;
+        f.write_all(&zeros[..n])?;
+        left -= n as u64;
     }
-}
-
-fn open_with(key: &Option<Secret>, aad: &[u8], kept: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
-    match key {
-        Some(k) => seal::open(k, aad, kept).map_err(|_| StoreError::Locked),
-        None => Ok(Zeroizing::new(kept.to_vec())),
-    }
+    f.sync_all()?;
+    std::fs::remove_file(p)
 }
 
 /// The files under `dir`, by their names relative to it.
@@ -317,12 +327,33 @@ impl Store {
     pub fn open(dir: impl AsRef<Path>, opts: Options) -> Result<Store> {
         let dir = dir.as_ref().to_path_buf();
         std::fs::create_dir_all(&dir).map_err(e)?;
-        let db = Database::create(dir.join("state.redb")).map_err(e)?;
+        let (db, sealed) = match &opts.key {
+            None if dir.join(SEALED).exists() || dir.join(SEALING).exists() => {
+                return Err(StoreError::Locked);
+            }
+            None => (Database::create(dir.join(PLAIN)).map_err(e)?, None),
+            Some(_) if dir.join(PLAIN).exists() || dir.join(SEALING).exists() => {
+                return Err(StoreError::Unsealed);
+            }
+            Some(k) => {
+                let lock = std::fs::File::open(&dir).map_err(e)?;
+                lock.try_lock().map_err(|_| e("the state is open elsewhere"))?;
+                let f = SealedFile::open(dir.join(SEALED), k.clone(), opts.no_sync).map_err(|x| match x {
+                    Unopened::Locked => StoreError::Locked,
+                    Unopened::Io(x) => e(x),
+                })?;
+                let f = Arc::new(f);
+                let db = Database::builder()
+                    .create_with_backend(Backend(f.clone()))
+                    .map_err(e)?;
+                (db, Some((f, lock)))
+            }
+        };
+        let (sealed, lock) = sealed.unzip();
         let tx = db.begin_write().map_err(e)?;
         {
             let mut m = tx.open_table(META).map_err(e)?;
             let v = m.get("version").map_err(e)?.map(|v| v.value().to_vec());
-            let fresh = v.is_none();
             match v {
                 None => {
                     m.insert("version", VERSION).map_err(e)?;
@@ -330,30 +361,20 @@ impl Store {
                 Some(v) if v == VERSION => {}
                 Some(v) => return Err(e(format!("state of version {v:?}"))),
             }
-            let aad = place("meta", &[b"sealed"]);
-            let sealed = m.get("sealed").map_err(e)?.map(|v| v.value().to_vec());
-            match (&opts.key, sealed) {
-                (Some(k), Some(s)) => {
-                    seal::open(k, &aad, &s).map_err(|_| StoreError::Locked)?;
-                }
-                (Some(k), None) if fresh => {
-                    m.insert("sealed", seal::seal(k, &aad, b"sealed").as_slice())
-                        .map_err(e)?;
-                }
-                (Some(_), None) => return Err(StoreError::Unsealed),
-                (None, Some(_)) => return Err(StoreError::Locked),
-                (None, None) => {}
-            }
             tx.open_table(RECORDS).map_err(e)?;
             tx.open_table(LINES).map_err(e)?;
         }
         tx.commit().map_err(e)?;
-        Ok(Store {
+        let st = Store {
             dir,
             db,
             opts,
             saved: HashMap::new(),
-        })
+            sealed,
+            _lock: lock,
+        };
+        st.save()?;
+        Ok(st)
     }
 
     /// The whole state; `me` is our name when none is saved.
@@ -366,16 +387,11 @@ impl Store {
             me: me.into(),
             chats: Vec::new(),
         };
-        let key = &self.opts.key;
         if let Some(n) = meta.get("me").map_err(e)? {
-            let n = open_with(key, &place("meta", &[b"me"]), n.value())?;
-            st.me = String::from_utf8_lossy(&n).into();
+            st.me = String::from_utf8_lossy(n.value()).into();
         }
         let order: Vec<String> = match meta.get("order").map_err(e)? {
-            Some(o) => {
-                serde_json::from_slice(&open_with(key, &place("meta", &[b"order"]), o.value())?)
-                    .map_err(e)?
-            }
+            Some(o) => serde_json::from_slice(o.value()).map_err(e)?,
             None => Vec::new(),
         };
         for id in order {
@@ -385,21 +401,27 @@ impl Store {
                 .ok_or_else(|| e(format!("no conversation {id}")))?
                 .value()
                 .to_vec();
-            let rec = open_with(key, &place("records", &[id.as_bytes()]), &rec)?;
             let mut c = chat_of(&serde_json::from_slice(&rec).map_err(e)?)?;
             for l in lines
                 .range((id.as_str(), 0)..=(id.as_str(), u64::MAX))
                 .map_err(e)?
             {
-                let (k, v) = l.map_err(e)?;
-                let v = open_with(key, &line_place(&id, k.value().1), v.value())?;
+                let (_, v) = l.map_err(e)?;
                 c.log
-                    .push(line_of(&serde_json::from_slice(&v).map_err(e)?)?);
+                    .push(line_of(&serde_json::from_slice(v.value()).map_err(e)?)?);
             }
-            self.saved.insert(id, rec.to_vec());
+            self.saved.insert(id, rec);
             st.chats.push(c);
         }
         Ok(st)
+    }
+
+    /// Seal the database and write it out whole, if the state is sealed.
+    fn save(&self) -> Result<()> {
+        match &self.sealed {
+            Some(f) => f.save().map_err(e),
+            None => Ok(()),
+        }
     }
 
     /// Where a file under the state directory is, refusing names that leave it.
@@ -420,11 +442,10 @@ impl Store {
             .mode(0o600)
             .open(&tmp)
             .and_then(|mut file| {
-                file.write_all(&seal_with(
-                    &self.opts.key,
-                    &place("file", &[f.file.as_bytes()]),
-                    &f.bytes,
-                ))?;
+                match &self.opts.key {
+                    Some(k) => file.write_all(&seal_file(k, &f.bytes))?,
+                    None => file.write_all(&f.bytes)?,
+                }
                 if !self.opts.no_sync {
                     file.sync_all()?;
                 }
@@ -463,9 +484,10 @@ impl Store {
         {
             return Ok(());
         }
-        let key = &self.opts.key;
         let mut tx = self.db.begin_write().map_err(e)?;
-        if self.opts.no_sync {
+        // A sealed database is in memory, where a durable commit costs nothing; only a durable
+        // one is written through to the bytes that are sealed and saved.
+        if self.opts.no_sync && self.sealed.is_none() {
             tx.set_durability(Durability::None);
         }
         {
@@ -484,15 +506,13 @@ impl Store {
                 }
             }
             for (id, rec) in &records {
-                let rec = seal_with(key, &place("records", &[id.as_bytes()]), rec);
                 rt.insert(id.as_str(), rec.as_slice()).map_err(e)?;
             }
             for (id, ls) in &ch.lines {
                 let Some(c) = st.chat(id) else { continue };
                 for l in c.log.iter().filter(|l| ls.contains(&l.id)) {
-                    let n = l.id as u64;
-                    let v = seal_with(key, &line_place(id, n), &encode(&line_json(l)));
-                    lt.insert((id.as_str(), n), v.as_slice()).map_err(e)?;
+                    lt.insert((id.as_str(), l.id as u64), encode(&line_json(l)).as_slice())
+                        .map_err(e)?;
                 }
             }
             for (id, ls) in &ch.dropped {
@@ -502,13 +522,12 @@ impl Store {
             }
             let mut m = tx.open_table(META).map_err(e)?;
             let order: Vec<&str> = st.chats.iter().map(|c| c.id.as_str()).collect();
-            let order = serde_json::to_vec(&order).unwrap();
-            m.insert("order", seal_with(key, &place("meta", &[b"order"]), &order).as_slice())
+            m.insert("order", serde_json::to_vec(&order).unwrap().as_slice())
                 .map_err(e)?;
-            m.insert("me", seal_with(key, &place("meta", &[b"me"]), st.me.as_bytes()).as_slice())
-                .map_err(e)?;
+            m.insert("me", st.me.as_bytes()).map_err(e)?;
         }
         tx.commit().map_err(e)?;
+        self.save()?;
         for (id, rec) in records {
             self.saved.insert(id, rec);
         }
@@ -525,23 +544,18 @@ impl Store {
         let rt = tx.open_table(RECORDS).map_err(e)?;
         let lt = tx.open_table(LINES).map_err(e)?;
         let mut out = Vec::new();
-        let key = &self.opts.key;
         for c in &st.chats {
             let rec = encode(&chat_json(c));
-            let saved = match rt.get(c.id.as_str()).map_err(e)? {
-                Some(v) => Some(
-                    open_with(key, &place("records", &[c.id.as_bytes()]), v.value())?.to_vec(),
-                ),
-                None => None,
-            };
-            let mut lines: Vec<Vec<u8>> = Vec::new();
-            for r in lt
+            let saved = rt
+                .get(c.id.as_str())
+                .map_err(e)?
+                .map(|v| v.value().to_vec());
+            let lines: Vec<Vec<u8>> = lt
                 .range((c.id.as_str(), 0)..=(c.id.as_str(), u64::MAX))
                 .map_err(e)?
-            {
-                let (k, v) = r.map_err(e)?;
-                lines.push(open_with(key, &line_place(&c.id, k.value().1), v.value())?.to_vec());
-            }
+                .map(|r| r.map(|(_, v)| v.value().to_vec()))
+                .collect::<std::result::Result<_, _>>()
+                .map_err(e)?;
             let want: Vec<Vec<u8>> = c.log.iter().map(|l| encode(&line_json(l))).collect();
             if saved.as_ref() != Some(&rec) || lines != want {
                 out.push(c.id.clone());
@@ -583,8 +597,10 @@ fn within(dir: &Path, name: &str) -> std::io::Result<PathBuf> {
 impl Files for StoreFiles {
     fn read(&self, name: &str) -> std::io::Result<Vec<u8>> {
         let kept = std::fs::read(self.path(name)?)?;
-        let mut plain = open_with(&self.key, &place("file", &[name.as_bytes()]), &kept)
-            .map_err(|x| std::io::Error::new(std::io::ErrorKind::InvalidData, x.to_string()))?;
+        let Some(k) = &self.key else { return Ok(kept) };
+        let mut plain = open_file(k, &kept).ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "sealed with another key, or changed")
+        })?;
         Ok(std::mem::take(&mut *plain))
     }
 
@@ -598,55 +614,43 @@ impl Files for StoreFiles {
 
 impl Store {
     pub fn files(&self) -> StoreFiles {
-        StoreFiles {
-            dir: self.dir.clone(),
-            key: self.opts.key.clone(),
-        }
+        StoreFiles::new(self.dir.clone(), self.opts.key.clone())
     }
 
-    /// Copy the unsealed state in `from` to `to`, sealed with `key`: every conversation, line
-    /// and file, written afresh so that no unsealed page of the old file comes along. `to` may
-    /// not exist yet; `from` is left as it was.
-    pub fn reseal(from: &Path, to: &Path, key: Secret) -> Result<()> {
-        if to.exists() {
-            return Err(e(format!("{} is already there", to.display())));
+    /// Seal the unsealed state in `dir` with `key`, in place: the database becomes
+    /// `state.sealed`, each file beside it is sealed whole, and the unsealed database is written
+    /// over and removed. One cut short is finished by calling this again.
+    pub fn reseal(dir: &Path, key: Secret) -> Result<()> {
+        let (plain, marker) = (dir.join(PLAIN), dir.join(SEALING));
+        if plain.exists() {
+            write_in_place(&marker, b"", false).map_err(e)?;
+            // Opened and closed, so that what is sealed is a database closed cleanly.
+            drop(Database::create(&plain).map_err(e)?);
+            let bytes = zeroize::Zeroizing::new(std::fs::read(&plain).map_err(e)?);
+            SealedFile::new(dir.join(SEALED), key.clone(), false, bytes)
+                .save()
+                .map_err(e)?;
         }
-        let mut old = Store::open(from, Options::default())?;
-        let st = old.load("")?;
+        if !marker.exists() {
+            return Ok(());
+        }
         let mut names = Vec::new();
-        tree(from, "", &mut names).map_err(e)?;
-        let mut files = Vec::new();
-        for file in names {
-            let base = file.rsplit('/').next().unwrap_or("");
-            if file == "state.redb" || base.starts_with(".tmp-") {
+        tree(dir, "", &mut names).map_err(e)?;
+        for name in names {
+            if [PLAIN, SEALED, SEALING].contains(&name.as_str()) || name.ends_with(".tmp") {
                 continue;
             }
-            let bytes = std::fs::read(from.join(&file)).map_err(e)?;
-            files.push(FileWrite { file, bytes });
+            let p = dir.join(&name);
+            let kept = zeroize::Zeroizing::new(std::fs::read(&p).map_err(e)?);
+            if !is_sealed(&kept) {
+                write_in_place(&p, &seal_file(&key, &kept), false).map_err(e)?;
+            }
         }
-        let changes = Changes {
-            chats: st.chats.iter().map(|c| c.id.clone()).collect(),
-            lines: st
-                .chats
-                .iter()
-                .map(|c| (c.id.clone(), c.log.iter().map(|l| l.id).collect()))
-                .collect(),
-            ..Changes::default()
-        };
-        let mut new = Store::open(
-            to,
-            Options {
-                no_sync: false,
-                key: Some(key),
-            },
-        )?;
-        new.commit(
-            &st,
-            &StepResult {
-                files,
-                changes,
-                ..StepResult::default()
-            },
-        )
+        if plain.exists() {
+            wipe(&plain).map_err(e)?;
+        }
+        std::fs::remove_file(&marker).map_err(e)?;
+        sync_dir(dir).map_err(e)?;
+        Ok(())
     }
 }
