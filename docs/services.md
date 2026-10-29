@@ -1,18 +1,13 @@
 # Pigeonhole services
 
 A pigeonhole service is the responder side of an initiator–responder
-protocol over Pigeonhole. It waits for clients, accepts each new connection,
-and then speaks some protocol with the client over it. That protocol is the
-service's own:
+protocol over Pigeonhole. It accepts new connections from clients and then
+speaks its own protocol over each one: a bot that joins group chats, like
+ELIZA in this repository, or a binary protocol no human reads.
 
-- a bot that joins group chats, speaking katzenqt's chat framing, like ELIZA
-  in this repository;
-- a binary protocol that no human reads, for any other purpose.
-
-A service has no address and no open port. Everything it sends or receives
-is a box written to or read from the storage replicas, so a client cannot
-reach it directly. Two mixnet services, run as plugins on service nodes,
-bootstrap the first contact:
+A service has no address and no open port; everything it sends or receives
+is a box on the storage replicas. Two mixnet services, run as plugins on
+service nodes, bootstrap the first contact:
 
 - the **service directory** (capability `service_directory`) holds a
   descriptor for each service, saying how to reach it;
@@ -35,13 +30,14 @@ sequenceDiagram
     Note over S,C: connection: each holds the other's read cap
 ```
 
-After the bootstrap the client and the service share a connection made of
-two Pigeonhole streams, one written by each side, and each holds the read
-capability of the other's stream. The router and the directory take no part
-in it.
+Afterwards the client and the service share a connection of two Pigeonhole
+streams, one written by each, and each holds the other's read cap. The
+router and the directory take no further part. Every party reaches the
+mixnet through a client daemon, kpclientd, which does all the cryptography
+that involves keys.
 
-Every party reaches the mixnet through a client daemon, kpclientd, which does
-all the cryptography that involves keys.
+The Go implementation is katzenpost's `pigeonservice` package; the Rust one
+is this crate's `services` module. They speak the same wire format.
 
 ## Contact vouchers
 
@@ -51,34 +47,27 @@ used once. The protocol is specified in [Contact
 voucher](https://katzenpost.network/docs/specs/contactvoucher/) and narrated
 in [Contact voucher protocol
 narration](https://katzenpost.network/docs/specs/contact_voucher_narration/).
-This document only says who mints the voucher and how it travels.
+Here it matters only who mints the voucher and how it travels.
 
 ## Identity
 
-A service is known by its NIKE keypair, X25519 and CTIDH1024 combined as a
-hybrid NIKE (`x25519-ctidh1024`). Its identity, the `ServiceID`, is the
-BLAKE2b-256 hash of the public key, written as 64 hex digits. A service keeps
-the keypair in its data directory as `name.private.pem` and
-`name.public.pem`, so its identity survives restarts.
+A service is known by its NIKE keypair, `x25519-ctidh1024`, kept in its data
+directory so it survives restarts. Its `ServiceID` is the BLAKE2b-256 hash of
+the public key, written as 64 hex digits.
 
-The router and the directory each have a NIKE keypair too, which they publish
-in the PKI document as the parameters `nikeScheme` and `publicKey` of their
-service node entry. A client trusts a router or a directory because the PKI
-lists it; it trusts nothing a directory says without checking it against the
-PKI.
+The router and the directory publish their NIKE public keys in the PKI
+document, as the parameters `nikeScheme` and `publicKey` of their service
+node entry. A client trusts a router or a directory because the PKI lists
+it, and trusts nothing a directory says without checking it against the PKI.
 
 ## Registering with routers
 
-A service registers with every voucher router in the PKI. It mints a voucher
-and sends it to the router in a `RegisterRequest`, with its public key and a
-MAC. The router checks the MAC, answers `StatusOK`, and uses the voucher. The
-resulting connection is the service's *link* with the router.
-
-The router writes each sealed voucher addressed to the service to its own
-stream of the link, as a `LinkMessage`. It keeps them rewritten for its
-retention period (seven days by default), so a service that was offline
-still receives them. A router bounds the vouchers one link retains (4096 by
-default) and refuses routes beyond that with `StatusBusy`.
+A service mints a voucher and sends it to each voucher router in the PKI in
+a `RegisterRequest`, with its public key and a MAC. The router uses the
+voucher, and the connection that results is the service's *link* with that
+router. The router writes every sealed voucher addressed to the service to
+the link as a `LinkMessage`, and keeps them for seven days, so a service
+that was offline still receives them.
 
 The authorities publish a new PKI document once an epoch, and the client
 daemon tells its thin clients about each one. On each new document a service
@@ -86,88 +75,47 @@ registers with any router listed in it that it has no link with. A
 registration that fails, and a link whose reader fails, are forgotten, so
 the next document registers with that router again.
 
-## Advertising in the directory
+## Advertising and discovery
 
 Once a service holds a link, it advertises its `ServiceDescriptor` in every
-directory in the PKI: its NIKE scheme, its public key, and the routers it
-holds links with. It advertises when it starts and again each time it opens
-a new link.
+directory in the PKI: its public key and the routers it holds links with. An
+`AdvertiseRequest` carries a MAC and a sequence number, the time in
+nanoseconds; the directory keeps only the descriptor with the highest. A
+`WithdrawRequest` removes it, and its sequence number stays, so a replayed
+older advertisement cannot bring it back.
 
-An `AdvertiseRequest` carries a sequence number and a MAC. The directory
-accepts it only if the MAC verifies against the descriptor's own public key
-and the sequence number is greater than that of the descriptor it replaces.
-A service uses the current time in nanoseconds, or one more than its last
-number if that is larger. A `WithdrawRequest` removes a descriptor; the
-directory keeps the withdrawal's sequence number, so a delayed or replayed
-older advertisement cannot bring the descriptor back.
-
-## Discovery
-
-A client asks a directory for one descriptor with a `LookupRequest`, and the
-directory answers it in its reply.
-
-For all descriptors, a `ListRequest` returns the read cap and start index of
-a *snapshot stream*. The directory writes every descriptor it holds to a new
-snapshot whenever one changes (gathering a burst of changes into one
-snapshot) and at least once per refresh interval (a day by default). A
-snapshot is a 4-byte big-endian length followed by the canonical CBOR of a
-`Snapshot`, split across as many boxes as it needs.
-
-A client asks every directory in the PKI. For a lookup it asks each in turn
-until one knows the service, and checks that the descriptor it gets back is
-that service's; for a list it merges the answers, taking the union of the
-routers each directory reports for a service, so one directory cannot hide
-the others' routers.
+A client finds one service with a `LookupRequest`, asking each directory in
+turn and checking that the descriptor it gets is the service's. A
+`ListRequest` instead returns the read cap of a *snapshot stream*, where the
+directory writes all its descriptors whenever one changes; a client merges
+the lists of every directory, so no single directory can hide a service's
+routers.
 
 ## Dialing a service
 
-To dial a service, a client:
-
-1. looks up the service's descriptor;
-2. mints a voucher;
-3. seals the voucher to the service's public key, as an anonymous sealed box;
-4. sends a `RouteRequest` holding the `ServiceID` and the sealed voucher to
-   one of the routers in the descriptor;
-5. waits for the service's voucher reply.
-
-A client tries only routers the PKI lists, since a descriptor comes from an
-untrusted directory, and gives each five minutes before trying the next.
-
-The router looks up the link of the `ServiceID` and forwards the sealed
-voucher over it, answering `StatusOK`, or `StatusUnknownService` if it has no
-link with that service. It cannot open the voucher. The service opens it with
-its private key and uses it. A service remembers each voucher it opened for
-an hour, so one forwarded twice is handled once, and gives each new
-connection ten minutes to complete.
-
-The router learns which service a voucher is for, and when, but not which
-client sent it: the client's request travels over Sphinx with a reply
-SURB.
+A client mints a voucher, seals it to the service's public key, and sends it
+to one of the service's routers in a `RouteRequest`. It tries only routers
+the PKI lists, five minutes each. The router forwards the sealed voucher
+over its link without being able to open it; the service opens it, uses it,
+and answers in the voucher reply. The router learns which service is being
+contacted and when, but not by whom, since the request travels over Sphinx
+with a reply SURB.
 
 A chat app that cannot route vouchers itself can mint one and hand it to
-`pigeonhole-voucher send SERVICE_IDENTITY VOUCHER_TOKEN`, which routes it to
-the service; the conversation then opens in the app.
+`pigeonhole-voucher send SERVICE_IDENTITY VOUCHER_TOKEN`.
 
-## Offering a voucher
-
-A service can also mint vouchers itself for clients to use. It keeps each
-one, across restarts, until a client uses it. ELIZA keeps three on offer in
-`data_dir/vouchers/`, each as the base64 text a katzenqt user pastes into
-"Induct via voucher". This needs no router or directory.
+The other direction needs no router or directory: a service mints a voucher
+and *offers* it, for a client to use. ELIZA keeps three on offer in
+`data_dir/vouchers/`, as the base64 text a katzenqt user pastes into "Induct
+via voucher".
 
 ## Connections
 
-Each side of a connection writes messages, one per box, to the next box of
-its own stream, and reads the peer's stream box by box, waiting for each one
-to be written. A message is at most one box; larger content is the
-application's to split.
-
-Storage replicas keep a box for one to two replica epochs. A connection
-keeps every box it sent within its retention period (seven days by default)
-and rewrites them all once a replica epoch, so a peer that is offline for
-days still finds them. Rewrites are idempotent. A connection's state, its
-caps, indices and retained boxes, is saved after every send and receive, so
-it survives a restart of either side.
+Each side writes its messages, one per box, to its own stream, and reads the
+peer's stream box by box. A message is at most one box. Replicas keep a box
+for one to two replica epochs, so a connection rewrites everything it sent
+in the last seven days once a replica epoch, and saves its state after every
+send and receive: either side can be offline for days, or restart.
 
 ## Request authentication
 
@@ -181,33 +129,28 @@ key = HKDF-BLAKE2b-256(ss, salt = none, info = "katzenpost-pigeonservice-mac-v1"
 mac = BLAKE2b-256(key = key, msg = canonical CBOR of the request with MAC null)
 ```
 
-`pluginPub` is the router's or the directory's public key from the PKI, and
-`servicePub` the service's. A shared secret of all zeros is rejected. MACs
-are compared in constant time.
+`pluginPub` is the router's or the directory's public key from the PKI. An
+all-zero shared secret is rejected, and MACs are compared in constant time.
 
-## Wire format
+## Messages
 
-Requests to the router and the directory are the payloads of Sphinx queries
-to the plugin's endpoint; replies come back in the reply SURB. Every message
-is canonical CBOR. A map's keys are the field names below; a field marked
-`omitempty` is left out when empty. Sphinx payloads arrive padded, so a
-decoder accepts trailing zero bytes after the item and rejects anything else.
-The client daemon retransmits a request until a reply arrives, so the router
-and the directory treat a repeated request as one.
+Requests are the payloads of Sphinx queries to the plugin's endpoint, and
+replies come back in the reply SURB. Every message is canonical CBOR, a map
+keyed by the Go field names. A decoder accepts the zero padding Sphinx adds
+after the item. The daemon retransmits a request until a reply arrives, so
+the router and the directory treat a repeated request as one.
 
-### Constants
+<details open>
+<summary>Go</summary>
 
 ```go
 const (
 	RouterCapability    = "voucher_router"
 	DirectoryCapability = "service_directory"
-
-	// PKI parameters holding a plugin's NIKE public key.
-	ParamNIKEScheme = "nikeScheme"
-	ParamPublicKey  = "publicKey"
+	ParamNIKEScheme     = "nikeScheme"
+	ParamPublicKey      = "publicKey"
 )
 
-// Reply status codes.
 const (
 	StatusOK uint8 = iota
 	StatusInvalidRequest
@@ -217,47 +160,31 @@ const (
 	StatusBusy
 	StatusInternalError
 )
-```
 
-### Descriptors
-
-```go
-// ServiceID names a service: the BLAKE2b-256 hash of its public key.
 type ServiceID [32]byte
 
-// RouterRef names one voucher router: the service node it runs on and its
-// endpoint there.
 type RouterRef struct {
 	NodeIDHash [32]byte
 	Endpoint   string
 }
 
-// ServiceDescriptor is everything a client needs to reach a service.
 type ServiceDescriptor struct {
-	NIKEScheme string      // the scheme of PublicKey
-	PublicKey  []byte      // the key a client seals its voucher to
-	Routers    []RouterRef // routers holding a live link with the service; null when none
+	NIKEScheme string
+	PublicKey  []byte
+	Routers    []RouterRef
 }
-```
 
-### Router messages
-
-```go
-// RouterRequest is the payload of a query to a voucher router. Exactly one
-// field is set.
+// To a voucher router; exactly one field is set.
 type RouterRequest struct {
 	Route    *RouteRequest    `cbor:",omitempty"`
 	Register *RegisterRequest `cbor:",omitempty"`
 }
 
-// RouteRequest asks a router to forward a sealed voucher to a service.
 type RouteRequest struct {
 	ServiceID  ServiceID
-	Ciphertext []byte // the voucher, sealed to the service's public key
+	Ciphertext []byte // the voucher, sealed to the service
 }
 
-// RegisterRequest asks a router to open a link with a service. Voucher is
-// one the service minted; the router inducts it.
 type RegisterRequest struct {
 	NIKEScheme string
 	PublicKey  []byte
@@ -265,22 +192,16 @@ type RegisterRequest struct {
 	MAC        []byte
 }
 
-// RouterReply answers a RouterRequest.
 type RouterReply struct {
 	Status uint8
 }
 
-// LinkMessage is one box on the router's stream of a link.
+// One box on the router's stream of a link.
 type LinkMessage struct {
 	Forward []byte `cbor:",omitempty"` // a client's sealed voucher
 }
-```
 
-### Directory messages
-
-```go
-// DirectoryRequest is the payload of a query to the service directory.
-// Exactly one field is set.
+// To a service directory; exactly one field is set.
 type DirectoryRequest struct {
 	Advertise *AdvertiseRequest `cbor:",omitempty"`
 	Withdraw  *WithdrawRequest  `cbor:",omitempty"`
@@ -288,72 +209,146 @@ type DirectoryRequest struct {
 	List      *ListRequest      `cbor:",omitempty"`
 }
 
-// AdvertiseRequest publishes or replaces a service's descriptor. Seq must
-// exceed the Seq of the descriptor it replaces.
 type AdvertiseRequest struct {
 	Descriptor ServiceDescriptor
 	Seq        uint64
 	MAC        []byte
 }
 
-// WithdrawRequest removes a service's descriptor. Seq must exceed the Seq of
-// the descriptor it removes.
 type WithdrawRequest struct {
 	ServiceID ServiceID
 	Seq       uint64
 	MAC       []byte
 }
 
-// LookupRequest asks for one service's descriptor.
 type LookupRequest struct {
 	ServiceID ServiceID
 }
 
-// ListRequest asks where the current snapshot of all descriptors is.
 type ListRequest struct{}
 
-// DirectoryReply answers a DirectoryRequest.
 type DirectoryReply struct {
 	Status     uint8
-	Descriptor *ServiceDescriptor `cbor:",omitempty"` // answers a Lookup
-	ReadCap    []byte             `cbor:",omitempty"` // the snapshot stream, answering a List
+	Descriptor *ServiceDescriptor `cbor:",omitempty"` // for Lookup
+	ReadCap    []byte             `cbor:",omitempty"` // for List: the snapshot stream
 	StartIndex []byte             `cbor:",omitempty"`
 }
 
-// Snapshot is the content of a snapshot stream: every descriptor the
-// directory holds.
+// A snapshot stream holds a 4-byte big-endian length, then this.
 type Snapshot struct {
 	Seq         uint64
 	Descriptors []ServiceDescriptor
 }
-```
 
-### The WhoReply
-
-The voucher reply holds a `WhoReply` in the shape of katzenqt's group chat
-`ReplyWho`, with one member: the side that used the voucher.
-
-```go
+// The voucher reply, in the shape of katzenqt's ReplyWho with one member.
 type whoReply struct {
-	PleaseAdds []pleaseAdd `cbor:"please_adds"` // exactly one entry
+	PleaseAdds []pleaseAdd `cbor:"please_adds"`
 }
 
 type pleaseAdd struct {
 	DisplayName string `cbor:"display_name"`
-	ReadCap     []byte `cbor:"read_cap"` // its message stream
+	ReadCap     []byte `cbor:"read_cap"`
 }
 ```
 
+</details>
+
+<details>
+<summary>Rust</summary>
+
+```rust
+pub const ROUTER_CAPABILITY: &str = "voucher_router";
+pub const DIRECTORY_CAPABILITY: &str = "service_directory";
+pub const PARAM_NIKE_SCHEME: &str = "nikeScheme";
+pub const PARAM_PUBLIC_KEY: &str = "publicKey";
+
+#[repr(u8)]
+pub enum Status { Ok = 0, InvalidRequest, BadMac, UnknownService, Stale, Busy, InternalError }
+
+pub struct ServiceId(pub [u8; 32]);
+
+pub struct RouterRef {
+    pub node_id_hash: [u8; 32],
+    pub endpoint: String,
+}
+
+pub struct ServiceDescriptor {
+    pub nike_scheme: String,
+    pub public_key: Vec<u8>,
+    pub routers: Vec<RouterRef>,
+}
+
+pub enum RouterRequest {
+    Route(RouteRequest),
+    Register(RegisterRequest),
+}
+
+pub struct RouteRequest {
+    pub service_id: ServiceId,
+    pub ciphertext: Vec<u8>, // the voucher, sealed to the service
+}
+
+pub struct RegisterRequest {
+    pub nike_scheme: String,
+    pub public_key: Vec<u8>,
+    pub voucher: Vec<u8>,
+    pub mac: Option<Vec<u8>>,
+}
+
+pub enum DirectoryRequest {
+    Advertise(AdvertiseRequest),
+    Withdraw(WithdrawRequest),
+    Lookup(ServiceId),
+    List,
+}
+
+pub struct AdvertiseRequest {
+    pub descriptor: ServiceDescriptor,
+    pub seq: u64,
+    pub mac: Option<Vec<u8>>,
+}
+
+pub struct WithdrawRequest {
+    pub service_id: ServiceId,
+    pub seq: u64,
+    pub mac: Option<Vec<u8>>,
+}
+
+pub struct DirectoryReply {
+    pub status: u8,
+    pub descriptor: Option<ServiceDescriptor>, // for Lookup
+    pub read_cap: Vec<u8>,                     // for List: the snapshot stream
+    pub start_index: Vec<u8>,
+}
+
+pub struct Snapshot {
+    pub seq: u64,
+    pub descriptors: Vec<ServiceDescriptor>,
+}
+
+// The router reply, the link message and the voucher reply have no type of
+// their own; these encode and decode them.
+pub fn encode_router_reply(status: Status) -> Vec<u8>;
+pub fn decode_status(raw: &[u8]) -> Result<u8, Error>;
+pub fn encode_link_message(forward: &[u8]) -> Vec<u8>;
+pub fn decode_link_message(raw: &[u8]) -> Result<Vec<u8>, Error>;
+pub(crate) fn encode_who_reply(display_name: &str, read_cap: &[u8]) -> Vec<u8>;
+```
+
+</details>
+
 ## Interfaces
 
-### What a service needs from the mixnet
+### The mixnet
 
-Both implementations of the framework reach the mixnet through one interface,
-which the thin client provides. In katzenpost's `pigeonservice` package:
+A service reaches the mixnet through one interface, which the thin client
+implements and tests replace with an in-memory network.
+
+<details open>
+<summary>Go</summary>
 
 ```go
 type Pigeonhole interface {
-	// Streams and boxes.
 	NewStream() (*bacap.WriteCap, *bacap.ReadCap, *bacap.MessageBoxIndex, error)
 	Write(ctx context.Context, writeCap *bacap.WriteCap, idx *bacap.MessageBoxIndex, plaintext []byte) (*bacap.MessageBoxIndex, error)
 	Read(ctx context.Context, readCap *bacap.ReadCap, idx *bacap.MessageBoxIndex) ([]byte, *bacap.MessageBoxIndex, error)
@@ -361,23 +356,24 @@ type Pigeonhole interface {
 	WritePayload(ctx context.Context, writeCap *bacap.WriteCap, idx *bacap.MessageBoxIndex, payload []byte) (*bacap.MessageBoxIndex, error)
 	MaxPlaintext() int
 
-	// The contact voucher operations.
 	VoucherMint(messageWriteCap []byte, displayName string) (*MintResult, error)
 	VoucherInduct(voucher, payload, whoReply []byte) (*InductResult, error)
 	VoucherOpen(secretKey, sealedReply, messageWriteCap []byte) (*OpenResult, error)
 	VoucherDeriveStream(voucher []byte) (writeCap, readCap []byte, err error)
 
-	// BoxSeal seals plaintext to a NIKE public key.
 	BoxSeal(nikeScheme string, publicKey, plaintext []byte) ([]byte, error)
 
-	// Mixnet services: a query with a reply, and the instances the PKI lists.
 	Request(ctx context.Context, node *[32]byte, endpoint []byte, payload []byte) ([]byte, error)
 	Services(capability string) ([]ServiceNode, error)
 }
+
+func NewThinPigeonhole(c *thin.ThinClient) Pigeonhole
 ```
 
-In this crate it is the transport's `Backend` trait, which also carries the
-NIKE operations the daemon does for a service:
+</details>
+
+<details>
+<summary>Rust</summary>
 
 ```rust
 pub trait Backend: Send + Sync + 'static {
@@ -400,106 +396,124 @@ pub trait Backend: Send + Sync + 'static {
     fn box_seal(&self, scheme: &str, public: &[u8], plaintext: &[u8]) -> impl Future<Output = Result<Vec<u8>>> + Send;
     fn box_open(&self, scheme: &str, private: &[u8], ciphertext: &[u8]) -> impl Future<Output = Result<Vec<u8>>> + Send;
 }
+
+// `daemon` is `@name` for an abstract unix socket, a socket path, or `host:port`.
+impl ThinClientBackend {
+    pub async fn dial(daemon: &str) -> Result<ThinClientBackend, Box<dyn std::error::Error>>;
+}
 ```
 
-`ThinClientBackend::dial(daemon)` provides it over kpclientd, where `daemon`
-is `@name` for an abstract unix socket, a socket path, or `host:port`.
+</details>
 
 ### Writing a service
 
-A service is a `Service` and a handler run for each client's session
-(`src/services/service.rs`):
+A service runs a handler for each client's session. A session is a
+connection, and ends when its handler returns. Closing the service keeps
+its sessions on disk for the next start.
+
+<details open>
+<summary>Go</summary>
+
+```go
+func LoadServiceKey(dataDir string) (*ServiceKey, error)
+func NewService(cfg Config, ph Pigeonhole) (*Service, error)
+
+func (s *Service) ID() ServiceID
+func (s *Service) Descriptor() *ServiceDescriptor
+func (s *Service) Run(ctx context.Context, h Handler) error
+func (s *Service) Close() error
+
+type Handler interface {
+	OnSession(ctx context.Context, s *Session)
+}
+
+type Session struct {
+	*Conn
+	// ...
+}
+
+func (c *Conn) Send(ctx context.Context, msg []byte) error
+func (c *Conn) Recv(ctx context.Context) ([]byte, error)
+```
+
+</details>
+
+<details>
+<summary>Rust</summary>
 
 ```rust
 impl<B: Backend> Service<B> {
     pub fn new(cfg: Config, ph: Arc<B>) -> Result<Self, Error>;
     pub fn id(&self) -> ServiceId;
     pub fn descriptor(&self) -> ServiceDescriptor;
-    /// Resumes links, registers with every router in the PKI, advertises.
-    pub fn listen(&self) -> Result<(), Error>;
-    /// The next client's arrival; `Incoming::handshake` completes it.
-    pub async fn accept(&self) -> Result<Incoming<B>, Error>;
-    /// Listens and serves each session with `handler`, bounded by
-    /// `max_concurrent_sessions`; a session ends when its handler returns.
     pub async fn run<F, Fut>(&self, handler: F) -> Result<(), Error>
-    where F: Fn(Session<B>) -> Fut + Send + Sync + 'static, Fut: Future<Output = ()> + Send + 'static;
-    /// Mints a voucher for a client to induct.
+    where
+        F: Fn(Session<B>) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()> + Send + 'static;
     pub async fn offer(&self) -> Result<Vec<u8>, Error>;
-    pub fn offers(&self) -> Vec<Vec<u8>>;
-    /// Stops; sessions are kept for the next start.
     pub async fn close(&self);
 }
-```
 
-`Config::new(key, data_dir)` gives the defaults: a display name, advertising
-on, 64 concurrent sessions, seven days' retention, a ten-minute timeout for
-new connections. A `Session` derefs to its `Conn`; it
-reports whether it was `restored()` from disk.
-
-A connection, on either side:
-
-```rust
+// A Session derefs to its Conn.
 impl<B: Backend> Conn<B> {
-    pub async fn max_message(&self) -> Result<usize, Error>;
     pub async fn send(&self, msg: &[u8]) -> Result<(), Error>;
     pub async fn recv(&self) -> Result<Vec<u8>, Error>;
-    pub async fn refresh(&self, retention: Duration) -> Result<(), Error>;
-    pub fn state(&self) -> ConnState;
-    pub fn restore(ph: Arc<B>, s: &ConnState, poll: Duration) -> Self;
 }
 ```
 
-The Go framework has the same shape: `NewService(Config, Pigeonhole)`,
-`Service.Run(ctx, Handler)` with
-
-```go
-type Handler interface {
-	OnSession(ctx context.Context, s *Session)
-}
-```
-
-and `Session` embedding `*Conn`, whose methods are `Send`, `Recv` and
-`Refresh`.
+</details>
 
 ### Reaching a service
 
-```rust
-/// Mints a voucher, routes it to the service and waits for its reply.
-pub async fn dial<B: Backend>(ph: Arc<B>, d: &ServiceDescriptor, display_name: &str, poll: Duration) -> Result<Conn<B>, Error>;
-/// Seals a voucher to the service and hands it to one of its routers.
-pub async fn route<B: Backend>(ph: &B, d: &ServiceDescriptor, voucher: &[u8]) -> Result<(), Error>;
-/// Inducts a voucher a service offered.
-pub async fn induct<B: Backend>(ph: Arc<B>, voucher: &[u8], display_name: &str, poll: Duration) -> Result<Conn<B>, Error>;
-```
-
-A client speaks to directories through `Directory`; `Directory::all` returns
-one per directory in the PKI. Advertising and withdrawing take the service's
-own key; looking up and listing take none.
-
-```rust
-impl<B: Backend> Directory<B> {
-    pub async fn all(ph: Arc<B>, key: Option<Keypair>, poll: Duration) -> Result<Vec<Self>, Error>;
-    pub async fn advertise(&self, d: &ServiceDescriptor) -> Result<(), Error>;
-    pub async fn withdraw(&self, id: ServiceId) -> Result<(), Error>;
-    pub async fn lookup(&self, id: ServiceId) -> Result<ServiceDescriptor, Error>;
-    pub async fn list(&self) -> Result<Vec<ServiceDescriptor>, Error>;
-}
-```
-
-In Go the same roles are two interfaces, which the `directory` package's
-`All` implements over every directory in the PKI:
+<details open>
+<summary>Go</summary>
 
 ```go
+type Discoverer interface {
+	Lookup(ctx context.Context, id ServiceID) (*ServiceDescriptor, error)
+	List(ctx context.Context) ([]ServiceDescriptor, error)
+}
+
 type Advertiser interface {
 	Advertise(ctx context.Context, d *ServiceDescriptor) error
 	Withdraw(ctx context.Context, id ServiceID) error
 }
 
-type Discoverer interface {
-	Lookup(ctx context.Context, id ServiceID) (*ServiceDescriptor, error)
-	List(ctx context.Context) ([]ServiceDescriptor, error)
-}
+// Package directory: both, over every directory in the PKI.
+func NewAll(ph ps.Pigeonhole, key *ps.ServiceKey, pollInterval time.Duration) (*All, error)
+
+// Mints a voucher, routes it to the service and waits for its reply.
+func Dial(ctx context.Context, ph Pigeonhole, d *ServiceDescriptor, displayName string, pollInterval time.Duration) (*Conn, error)
+// Routes a voucher someone else minted.
+func Route(ctx context.Context, ph Pigeonhole, d *ServiceDescriptor, voucher []byte) error
+// Uses a voucher a service offered.
+func Induct(ctx context.Context, ph Pigeonhole, voucher []byte, displayName string, pollInterval time.Duration) (*Conn, error)
 ```
+
+</details>
+
+<details>
+<summary>Rust</summary>
+
+```rust
+// One per directory in the PKI.
+impl<B: Backend> Directory<B> {
+    pub async fn all(ph: Arc<B>, key: Option<Keypair>, poll: Duration) -> Result<Vec<Self>, Error>;
+    pub async fn lookup(&self, id: ServiceId) -> Result<ServiceDescriptor, Error>;
+    pub async fn list(&self) -> Result<Vec<ServiceDescriptor>, Error>;
+    pub async fn advertise(&self, d: &ServiceDescriptor) -> Result<(), Error>;
+    pub async fn withdraw(&self, id: ServiceId) -> Result<(), Error>;
+}
+
+/// Mints a voucher, routes it to the service and waits for its reply.
+pub async fn dial<B: Backend>(ph: Arc<B>, d: &ServiceDescriptor, display_name: &str, poll: Duration) -> Result<Conn<B>, Error>;
+/// Routes a voucher someone else minted.
+pub async fn route<B: Backend>(ph: &B, d: &ServiceDescriptor, voucher: &[u8]) -> Result<(), Error>;
+/// Uses a voucher a service offered.
+pub async fn induct<B: Backend>(ph: Arc<B>, voucher: &[u8], display_name: &str, poll: Duration) -> Result<Conn<B>, Error>;
+```
+
+</details>
 
 ## Programs
 
@@ -507,14 +521,13 @@ type Discoverer interface {
 |---|---|---|
 | `voucher-router` | katzenpost `cmd/voucher-router` | the voucher router plugin |
 | `service-directory` | katzenpost `cmd/service-directory` | the service directory plugin |
-| `pigeonhole-voucher` | katzenpost `cmd/pigeonhole-voucher` | `list` the directory's services; `send` a service a voucher a chat app minted |
+| `pigeonhole-voucher` | katzenpost `cmd/pigeonhole-voucher` | `list` the services; `send` a service a voucher |
 | `pigeonhole-echo` | katzenpost `cmd/pigeonhole-echo` | a service that sends back each message |
-| `eliza` | `src/bin/eliza.rs` | ELIZA, speaking katzenqt's chat framing |
+| `eliza` | `src/bin/eliza.rs` | ELIZA, in katzenqt's chat framing |
 
-The two plugins run on a service node beside the courier. Each takes a
-`data_dir` for its key and database, and a `thin_config` naming the
-kpclientd it reaches the mixnet through, since a router and a directory read
-and write Pigeonhole streams like any service:
+The plugins run on a service node beside the courier. Each has its own data
+directory and log directory, and reaches the mixnet through a kpclientd
+named by its thin client config:
 
 ```toml
 [[ServiceNode.CBORPluginKaetzchen]]
@@ -537,6 +550,3 @@ and write Pigeonhole streams like any service:
     log_dir = "/var/log/katzenpost/service_directory"
     thin_config = "/etc/katzenpost-servicenode/pigeonservice-thinclient.toml"
 ```
-
-A plugin generates its keypair on first start and publishes the public key
-in the PKI through the server.
