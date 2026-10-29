@@ -15,7 +15,7 @@ include = ["/src/**", "/README.md", "/LICENSE"]
 
 [dependencies]
 # katzenpost/thin_client#100: the daemon's NIKE and sealed box requests.
-katzenpost_thin_client = { git = "https://github.com/katzenpost/thin_client", rev = "73bca03442f02c3cfbea510fb9b4c99bc47dc480" }
+katzenpost_thin_client = { git = "https://github.com/katzenpost/thin_client", rev = "2aff9881b07cd4604f957df619fa8dcbee5dded3" }
 base64 = "0.22"
 blake2 = "0.10"
 chacha20poly1305 = "0.10"

@@ -696,7 +696,7 @@ dependencies = [
 [[package]]
 name = "katzenpost_thin_client"
 version = "0.0.25"
-source = "git+https://github.com/katzenpost/thin_client?rev=73bca03442f02c3cfbea510fb9b4c99bc47dc480#73bca03442f02c3cfbea510fb9b4c99bc47dc480"
+source = "git+https://github.com/katzenpost/thin_client?rev=2aff9881b07cd4604f957df619fa8dcbee5dded3#2aff9881b07cd4604f957df619fa8dcbee5dded3"
 dependencies = [
  "async-trait",
  "base64",
