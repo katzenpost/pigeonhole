@@ -94,6 +94,12 @@ impl Keypair {
             (true, true) => {
                 let private = PrivateKey::from_bytes(&read_pem(&priv_file, "PRIVATE KEY")?)?;
                 let public = PublicKey::from_bytes(&read_pem(&pub_file, "PUBLIC KEY")?)?;
+                // The daemon does the NIKE, so check the pair by deriving a
+                // secret with a fresh key both ways.
+                let probe = Keypair::generate(ph).await?;
+                if private.derive_secret(ph, &probe.public).await?[..] != probe.private.derive_secret(ph, &public).await?[..] {
+                    return Err(Error::Other(format!("{name} public key does not match its private key")));
+                }
                 Ok(Keypair { public, private })
             }
             (false, false) => {
