@@ -19,6 +19,8 @@ type Reply struct {
 	Message string
 	// Day is the date it is the message of, as YYYY-MM-DD in UTC.
 	Day string
+	// Error says why there is no message; empty on success.
+	Error string `cbor:",omitempty"`
 }
 
 // Source returns the current message of the day.
@@ -43,22 +45,23 @@ type SystemClock struct{}
 func (SystemClock) Now() time.Time { return time.Now() }
 
 // Serve answers one client's requests until the connection ends. A request that does not
-// decode is ignored.
+// decode, or one the source cannot answer, gets a Reply with Error set.
 func Serve(ctx context.Context, s Conn, source Source, clock Clock) error {
 	for {
 		raw, err := s.Recv(ctx)
 		if err != nil {
 			return err
 		}
+		var r Reply
 		var req Request
 		if err := ps.Unmarshal(raw, &req); err != nil {
-			continue
+			r.Error = "bad request"
+		} else if msg, err := source(); err != nil {
+			r.Error = "no message available"
+		} else {
+			r = Reply{Message: msg, Day: clock.Now().UTC().Format(time.DateOnly)}
 		}
-		msg, err := source()
-		if err != nil {
-			return err
-		}
-		reply, err := ps.Marshal(&Reply{Message: msg, Day: clock.Now().UTC().Format(time.DateOnly)})
+		reply, err := ps.Marshal(&r)
 		if err != nil {
 			return err
 		}

@@ -109,21 +109,36 @@ func TestServeReadsTheSourceForEachRequest(t *testing.T) {
 	require.ErrorIs(t, <-done, io.EOF)
 }
 
-func TestServeIgnoresARequestThatDoesNotDecode(t *testing.T) {
+func TestServeAnswersARequestThatDoesNotDecode(t *testing.T) {
 	c, _ := serve(t, func() (string, error) { return "hi", nil }, clockAt(day))
 	c.in <- []byte{0xff, 0x00}
+	require.Equal(t, motd.Reply{Error: "bad request"}, reply(t, c))
 	c.in <- request(t)
 	require.Equal(t, "hi", reply(t, c).Message)
-	require.Empty(t, c.out, "the bad request got no reply")
 	close(c.in)
 }
 
-func TestServeEndsWhenTheSourceFails(t *testing.T) {
-	boom := errors.New("no message today")
-	c, done := serve(t, func() (string, error) { return "", boom }, clockAt(day))
+func TestServeAnswersWhenTheSourceFails(t *testing.T) {
+	fail := true
+	c, _ := serve(t, func() (string, error) {
+		if fail {
+			return "", errors.New("no message today")
+		}
+		return "hi", nil
+	}, clockAt(day))
 	c.in <- request(t)
-	require.ErrorIs(t, <-done, boom)
-	require.Empty(t, c.out)
+	require.Equal(t, motd.Reply{Error: "no message available"}, reply(t, c))
+	fail = false
+	c.in <- request(t)
+	require.Equal(t, "hi", reply(t, c).Message)
+	close(c.in)
+}
+
+func TestFetchReportsAnError(t *testing.T) {
+	c, _ := serve(t, func() (string, error) { return "", errors.New("gone") }, clockAt(day))
+	_, err := client.Fetch(context.Background(), &fakeConn{in: c.out, out: c.in})
+	require.ErrorContains(t, err, "no message available")
+	close(c.in)
 }
 
 func TestFetch(t *testing.T) {

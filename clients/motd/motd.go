@@ -4,6 +4,7 @@ package motd
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	ps "github.com/katzenpost/katzenpost/pigeonservice"
 
@@ -29,6 +30,9 @@ func Fetch(ctx context.Context, conn motd.Conn) (*motd.Reply, error) {
 	var reply motd.Reply
 	if err := ps.Unmarshal(raw, &reply); err != nil {
 		return nil, ErrBadReply
+	}
+	if reply.Error != "" {
+		return nil, fmt.Errorf("motd: %s", reply.Error)
 	}
 	return &reply, nil
 }
