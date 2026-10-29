@@ -15,6 +15,7 @@ service nodes, bootstrap the first contact:
   first message to a service.
 
 ```mermaid
+%%{init: {"sequence": {"mirrorActors": false}}}%%
 sequenceDiagram
     participant C as Client
     participant D as Service directory
