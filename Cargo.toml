@@ -2,7 +2,7 @@
 name = "pigeonhole_protocols"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.89"
 authors = ["David Stainton"]
 homepage = "https://katzenpost.network"
 description = "Protocols over Katzenpost's Pigeonhole storage: group chat, and services with their clients"

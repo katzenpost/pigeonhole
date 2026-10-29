@@ -1,6 +1,4 @@
-//! Sealing what the store keeps under a key of 32 bytes: XChaCha20-Poly1305 with a random nonce,
-//! bound by its associated data to where the sealed bytes are kept, so that they open nowhere
-//! else.
+//! Sealing bytes under a key of 32 bytes: XChaCha20-Poly1305 with a random nonce.
 
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
@@ -10,24 +8,13 @@ use zeroize::Zeroizing;
 const FORMAT: u8 = 1;
 const NONCE: usize = 24;
 
-/// The bytes did not open: another key sealed them, or they were sealed for another place, or
-/// they were changed.
+/// The bytes did not open: another key sealed them, with other associated data, or they were
+/// changed.
 #[derive(Debug)]
 pub struct Unopened;
 
 fn cipher(key: &[u8]) -> XChaCha20Poly1305 {
     XChaCha20Poly1305::new_from_slice(key).expect("a key of 32 bytes")
-}
-
-/// Where a value is kept, as associated data: its table, then each part of its key with its
-/// length before it.
-pub fn place(table: &str, parts: &[&[u8]]) -> Vec<u8> {
-    let mut out = table.as_bytes().to_vec();
-    for p in parts {
-        out.extend((p.len() as u32).to_be_bytes());
-        out.extend(*p);
-    }
-    out
 }
 
 pub fn seal(key: &[u8], aad: &[u8], plain: &[u8]) -> Vec<u8> {
@@ -59,22 +46,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn opens_only_where_sealed() {
+    fn opens_only_as_sealed() {
         let k = [7u8; 32];
-        let s = seal(&k, &place("lines", &[b"g", &0u64.to_be_bytes()]), b"hello");
-        assert_eq!(
-            &*open(&k, &place("lines", &[b"g", &0u64.to_be_bytes()]), &s).unwrap(),
-            b"hello"
-        );
-        assert!(open(&k, &place("lines", &[b"g", &1u64.to_be_bytes()]), &s).is_err());
-        assert!(open(&[8u8; 32], &place("lines", &[b"g", &0u64.to_be_bytes()]), &s).is_err());
+        let s = seal(&k, b"here", b"hello");
+        assert_eq!(&*open(&k, b"here", &s).unwrap(), b"hello");
+        assert!(open(&k, b"there", &s).is_err());
+        assert!(open(&[8u8; 32], b"here", &s).is_err());
         let mut t = s.clone();
         *t.last_mut().unwrap() ^= 1;
-        assert!(open(&k, &place("lines", &[b"g", &0u64.to_be_bytes()]), &t).is_err());
-    }
-
-    #[test]
-    fn parts_cannot_run_together() {
-        assert_ne!(place("t", &[b"ab", b"c"]), place("t", &[b"a", b"bc"]));
+        assert!(open(&k, b"here", &t).is_err());
     }
 }
