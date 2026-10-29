@@ -80,9 +80,11 @@ retention period (seven days by default), so a service that was offline
 still receives them. A router bounds the vouchers one link retains (4096 by
 default) and refuses routes beyond that with `StatusBusy`.
 
-A service rescans the PKI every ten minutes and registers with any router it
-has no link with. A link whose reader fails is forgotten, and registered
-again on the next rescan.
+The authorities publish a new PKI document once an epoch, and the client
+daemon tells its thin clients about each one. On each new document a service
+registers with any router listed in it that it has no link with. A
+registration that fails, and a link whose reader fails, are forgotten, so
+the next document registers with that router again.
 
 ## Advertising in the directory
 
@@ -431,7 +433,7 @@ impl<B: Backend> Service<B> {
 
 `Config::new(key, data_dir)` gives the defaults: a display name, advertising
 on, 64 concurrent sessions, seven days' retention, a ten-minute timeout for
-new connections and a ten-minute PKI rescan. A `Session` derefs to its `Conn`; it
+new connections. A `Session` derefs to its `Conn`; it
 reports whether it was `restored()` from disk.
 
 A connection, on either side:
