@@ -21,6 +21,7 @@ async fn open(w: &World, dir: &std::path::Path, name: &str) -> Client {
             name: name.into(),
             epoch_poll: Duration::from_secs(1),
             no_sync: false,
+            key: None,
         },
         w.clone(),
     )
@@ -230,6 +231,7 @@ async fn voucher_reads_that_fail_are_retried() {
         name: name.into(),
         epoch_poll: Duration::from_secs(1),
         no_sync: false,
+        key: None,
     };
     let alice = Client::open(cfg(alice_dir.path(), "alice"), alice_net.clone())
         .await
@@ -251,6 +253,68 @@ async fn voucher_reads_that_fail_are_retried() {
         bob.chat(&bg).await.unwrap().joined
     })
     .await;
+    alice.close().await;
+    bob.close().await;
+}
+
+/// A client with a sealed state carries on as one without, and what it keeps opens only with its
+/// key.
+#[tokio::test(flavor = "multi_thread")]
+async fn sealed_state() {
+    let w = World::default();
+    let (alice_dir, bob_dir) = (tmp(), tmp());
+    let sealed = |key: Option<u8>| Config {
+        state_dir: alice_dir.path().into(),
+        name: "alice".into(),
+        epoch_poll: Duration::from_secs(1),
+        no_sync: false,
+        key: key.map(|k| transport::Secret::new(&[k; 32])),
+    };
+    let alice = Client::open(sealed(Some(1)), w.clone()).await.unwrap();
+    let bob = open(&w, bob_dir.path(), "bob").await;
+    let g = alice.create("g").await.unwrap();
+    let bg = bob.join("g").await.unwrap();
+    wait_for("a voucher code and alice's group", || async {
+        !bob.chat(&bg).await.unwrap().code.is_empty() && alice.chat(&g).await.unwrap().joined
+    })
+    .await;
+    let code = bob.chat(&bg).await.unwrap().code;
+    alice.invite(&g, &code).await.unwrap();
+    wait_for("bob to join", || async {
+        bob.chat(&bg).await.unwrap().joined
+    })
+    .await;
+    let bytes = b"a picture, as it were".to_vec();
+    bob.send_file(&bg, "pic.bin", bytes.clone()).await.unwrap();
+    bob.send(&bg, "did you get it").await.unwrap();
+    wait_for("alice to read both", || async {
+        has(&alice, &g, "did you get it").await
+            && alice
+                .lines(&g, None)
+                .await
+                .unwrap()
+                .iter()
+                .any(|l| l.line.attachment.is_some())
+    })
+    .await;
+    let lines = alice.lines(&g, None).await.unwrap();
+    let a = lines
+        .iter()
+        .find_map(|l| l.line.attachment.clone())
+        .unwrap();
+    assert_eq!(*alice.read_file(&a).unwrap(), bytes);
+    assert_ne!(std::fs::read(alice.file_path(&a)).unwrap(), bytes);
+    alice.close().await;
+    assert_eq!(
+        Client::open(sealed(None), w.clone()).await.err(),
+        Some(ClientError::Locked)
+    );
+    assert_eq!(
+        Client::open(sealed(Some(2)), w.clone()).await.err(),
+        Some(ClientError::Locked)
+    );
+    let alice = Client::open(sealed(Some(1)), w.clone()).await.unwrap();
+    assert!(has(&alice, &g, "did you get it").await);
     alice.close().await;
     bob.close().await;
 }

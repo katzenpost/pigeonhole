@@ -207,6 +207,7 @@ async fn run<B: Backend>(a: Args, backend: B) {
         name: a.name,
         epoch_poll: Duration::from_secs(60),
         no_sync: false,
+        key: None,
     };
     let c = Arc::new(Client::open(cfg, backend).await.unwrap_or_else(|e| {
         eprintln!("{e}");

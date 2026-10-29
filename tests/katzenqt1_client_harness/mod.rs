@@ -173,7 +173,7 @@ impl World {
                     .unwrap_or_else(|_| format!("{}/scratch/tmp", std::env::var("HOME").unwrap())),
             )
             .unwrap();
-            let mut st = Store::open(dir.path(), Options { no_sync: true }).unwrap();
+            let mut st = Store::open(dir.path(), Options { no_sync: true, key: None }).unwrap();
             // What the member did before it had a store is saved now.
             let mut all = StepResult::default();
             for c in &m.eng.state.chats {
