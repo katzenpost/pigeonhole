@@ -5,8 +5,8 @@ use pigeonhole_protocols::services::testkit::*;
 use pigeonhole_protocols::transport::sim::World;
 use pigeonhole_protocols::services::{Config, Keypair, Service, dial, induct, mint};
 
-fn config(dir: &std::path::Path) -> Config {
-    let mut cfg = Config::new(Keypair::load_or_generate(dir, "service").unwrap(), dir);
+async fn config(net: &World, dir: &std::path::Path) -> Config {
+    let mut cfg = Config::new(Keypair::load_or_generate(net, dir, "service").await.unwrap(), dir);
     cfg.display_name = "echo".into();
     cfg.poll_interval = POLL;
     cfg
@@ -64,7 +64,7 @@ async fn handshake_opens_a_two_way_connection() {
 async fn service_end_to_end() {
     let net = world();
     let dir = tempfile::tempdir().unwrap();
-    let svc = echo(&net, config(dir.path()));
+    let svc = echo(&net, config(&net, dir.path()).await);
     let d = lookup_linked(&net, svc.id(), 2).await;
     let conn = within(dial(Arc::new(net.clone()), &d, "alice", POLL)).await.unwrap();
     for m in ["hello", "again"] {
@@ -78,7 +78,7 @@ async fn service_end_to_end() {
 async fn offered_voucher_opens_a_session() {
     let net = world();
     let dir = tempfile::tempdir().unwrap();
-    let svc = echo(&net, config(dir.path()));
+    let svc = echo(&net, config(&net, dir.path()).await);
     lookup_linked(&net, svc.id(), 2).await;
     let voucher = within(svc.offer()).await.unwrap();
     assert_eq!(svc.offers(), vec![voucher.clone()]);
@@ -94,7 +94,7 @@ async fn offered_voucher_opens_a_session() {
 async fn service_resumes_after_restart() {
     let net = world();
     let dir = tempfile::tempdir().unwrap();
-    let svc = echo(&net, config(dir.path()));
+    let svc = echo(&net, config(&net, dir.path()).await);
     let d = lookup_linked(&net, svc.id(), 2).await;
     let conn = within(dial(Arc::new(net.clone()), &d, "alice", POLL)).await.unwrap();
     conn.send(b"one").await.unwrap();
@@ -105,7 +105,7 @@ async fn service_resumes_after_restart() {
     // The links, the session and the offer come back without registering
     // or dialling again.
     let writes = net.state().writes;
-    let svc = echo(&net, config(dir.path()));
+    let svc = echo(&net, config(&net, dir.path()).await);
     conn.send(b"two").await.unwrap();
     assert_eq!(within(conn.recv()).await.unwrap(), b"echo: two");
     let late = within(induct(Arc::new(net.clone()), &offered, "late", POLL)).await.unwrap();
@@ -120,7 +120,7 @@ async fn service_resumes_after_restart() {
 async fn dial_falls_back_to_another_router() {
     let net = world();
     let dir = tempfile::tempdir().unwrap();
-    let svc = echo(&net, config(dir.path()));
+    let svc = echo(&net, config(&net, dir.path()).await);
     let mut d = lookup_linked(&net, svc.id(), 2).await;
     // The first "router" is the directory, which refuses a router request.
     d.routers.insert(0, pigeonhole_protocols::services::wire::RouterRef { node_id_hash: [0xdd; 32], endpoint: "service_directory".into() });

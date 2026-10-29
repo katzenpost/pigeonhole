@@ -7,10 +7,8 @@
 //! - [`services`]: responders, and the framework they are written with.
 //! - [`clients`]: initiators, which reach services.
 //! - [`secret`]: caps and keys in guarded memory, wiped on drop.
-//! - [`highctidh`]: the CTIDH-1024 key exchange services key themselves with.
 
 pub mod clients;
-pub mod highctidh;
 pub mod protocols;
 pub mod secret;
 pub mod services;

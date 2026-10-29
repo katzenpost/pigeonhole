@@ -3,7 +3,6 @@
 
 use pigeonhole_protocols::services::auth;
 use pigeonhole_protocols::services::nike::{Keypair, PrivateKey, PublicKey};
-use pigeonhole_protocols::services::sealedbox;
 use pigeonhole_protocols::services::wire::*;
 
 fn vectors() -> serde_json::Value {
@@ -20,6 +19,9 @@ struct Fixture {
     service: Keypair,
     plugin: Keypair,
     descriptor: ServiceDescriptor,
+    /// The service's and the plugin's shared secret, as Go derived it: the client daemon derives
+    /// it here.
+    ss: Vec<u8>,
 }
 
 fn fixture() -> Fixture {
@@ -42,18 +44,14 @@ fn fixture() -> Fixture {
         public_key: service.public.to_bytes(),
         routers,
     };
-    Fixture { v, service, plugin, descriptor }
+    let ss = h(&v["shared_secret"]);
+    Fixture { v, service, plugin, descriptor, ss }
 }
 
 #[test]
-fn keys_and_shared_secret() {
+fn keys() {
     let f = fixture();
-    assert_eq!(f.service.private.public_key(), f.service.public);
-    assert_eq!(f.service.private.to_bytes().as_slice(), h(&f.v["service_private_key"]));
-    let ss = f.service.private.derive_secret(&f.plugin.public).unwrap();
-    assert_eq!(ss.as_slice(), h(&f.v["shared_secret"]));
-    let ss2 = f.plugin.private.derive_secret(&f.service.public).unwrap();
-    assert_eq!(ss2.as_slice(), ss.as_slice());
+    assert_eq!(f.service.private.as_bytes(), h(&f.v["service_private_key"]), "Go's key sizes are ours");
     assert_eq!(ServiceId::from_public_key(&f.service.public.to_bytes()).0.to_vec(), h(&f.v["service_id"]));
 }
 
@@ -67,7 +65,7 @@ fn register() {
         mac: None,
     };
     assert_eq!(pigeonhole_protocols::services::cbor::encode(&r.clone_unsigned()), h(&f.v["register"]["unsigned"]));
-    auth::sign_register(&f.service, &f.plugin.public, &mut r).unwrap();
+    auth::sign_register(&f.ss, &f.plugin.public.to_bytes(), &mut r).unwrap();
     assert_eq!(r.mac.clone().unwrap(), h(&f.v["register"]["mac"]));
     assert_eq!(RouterRequest::Register(r).encode(), h(&f.v["register"]["router_request"]));
 }
@@ -83,12 +81,12 @@ fn route() {
 fn advertise_and_withdraw() {
     let f = fixture();
     let mut a = AdvertiseRequest { descriptor: f.descriptor.clone(), seq: f.v["advertise"]["seq"].as_u64().unwrap(), mac: None };
-    auth::sign_advertise(&f.service, &f.plugin.public, &mut a).unwrap();
+    auth::sign_advertise(&f.ss, &f.plugin.public.to_bytes(), &mut a).unwrap();
     assert_eq!(a.mac.clone().unwrap(), h(&f.v["advertise"]["mac"]));
     assert_eq!(DirectoryRequest::Advertise(a).encode(), h(&f.v["advertise"]["directory_request"]));
 
     let mut w = WithdrawRequest { service_id: f.descriptor.id(), seq: f.v["withdraw"]["seq"].as_u64().unwrap(), mac: None };
-    auth::sign_withdraw(&f.service, &f.plugin.public, &mut w).unwrap();
+    auth::sign_withdraw(&f.ss, &f.plugin.public.to_bytes(), &f.service.public.to_bytes(), &mut w).unwrap();
     assert_eq!(w.mac.clone().unwrap(), h(&f.v["withdraw"]["mac"]));
     assert_eq!(DirectoryRequest::Withdraw(w).encode(), h(&f.v["withdraw"]["directory_request"]));
 
@@ -117,32 +115,24 @@ fn replies() {
 }
 
 #[test]
-fn sealed_box() {
-    let f = fixture();
-    let ct = h(&f.v["sealed_box"]["ciphertext"]);
-    let pt = sealedbox::open(&f.service.private, &f.service.public, &ct).unwrap();
-    assert_eq!(pt, h(&f.v["sealed_box"]["plaintext"]));
-    assert!(sealedbox::open(&f.plugin.private, &f.plugin.public, &ct).is_err());
-
-    let ours = sealedbox::seal(&f.service.public, b"round trip").unwrap();
-    assert_eq!(sealedbox::open(&f.service.private, &f.service.public, &ours).unwrap(), b"round trip");
-}
-
-#[test]
 fn plugin_side_accepts_go_requests() {
     let f = fixture();
     let RouterRequest::Register(r) = RouterRequest::decode(&h(&f.v["register"]["router_request"])).unwrap() else { panic!() };
-    auth::verify_register(&f.plugin, &r).unwrap();
+    let plugin_pub = f.plugin.public.to_bytes();
+    auth::verify_register(&f.ss, &plugin_pub, &r).unwrap();
     let mut forged = r.clone();
     forged.voucher[0] ^= 1;
-    assert!(auth::verify_register(&f.plugin, &forged).is_err());
-    assert!(auth::verify_register(&f.service, &r).is_err(), "the MAC binds the plugin key");
+    assert!(auth::verify_register(&f.ss, &plugin_pub, &forged).is_err());
+    assert!(auth::verify_register(&f.ss, &f.service.public.to_bytes(), &r).is_err(), "the MAC binds the plugin key");
+    let mut other = f.ss.clone();
+    other[0] ^= 1;
+    assert!(auth::verify_register(&other, &plugin_pub, &r).is_err(), "and the shared secret");
 
     let DirectoryRequest::Advertise(a) = DirectoryRequest::decode(&h(&f.v["advertise"]["directory_request"])).unwrap() else { panic!() };
     assert_eq!(a.descriptor, f.descriptor);
-    auth::verify_advertise(&f.plugin, &a).unwrap();
+    auth::verify_advertise(&f.ss, &plugin_pub, &a).unwrap();
     let DirectoryRequest::Withdraw(w) = DirectoryRequest::decode(&h(&f.v["withdraw"]["directory_request"])).unwrap() else { panic!() };
-    auth::verify_withdraw(&f.plugin, &f.service.public.to_bytes(), &w).unwrap();
+    auth::verify_withdraw(&f.ss, &plugin_pub, &f.service.public.to_bytes(), &w).unwrap();
     assert_eq!(DirectoryRequest::decode(&h(&f.v["lookup_request"])).unwrap(), DirectoryRequest::Lookup(f.descriptor.id()));
     assert_eq!(DirectoryRequest::decode(&h(&f.v["list_request"])).unwrap(), DirectoryRequest::List);
 

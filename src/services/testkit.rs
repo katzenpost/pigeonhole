@@ -7,7 +7,8 @@ use std::time::Duration;
 
 use crate::services::conn::Conn;
 use crate::transport::sim::{Handler, World};
-use crate::services::nike::{self, Keypair};
+use crate::services::nike::{self, Keypair, PrivateKey, PublicKey};
+use crate::transport::Backend;
 use crate::services::wire::*;
 use crate::services::{auth, induct};
 
@@ -22,9 +23,20 @@ pub fn params(key: &Keypair) -> BTreeMap<String, serde_cbor::Value> {
     ])
 }
 
+/// A key for a plugin on the sim, made without the sim's async calls.
+fn plugin_key() -> Keypair {
+    let (public, private) = crate::transport::sim::nike_keypair();
+    Keypair { public: PublicKey::from_bytes(&public).unwrap(), private: PrivateKey::from_bytes(&private).unwrap() }
+}
+
+/// The plugin's shared secret with the service whose public key is `service_pub`.
+async fn plugin_secret(net: &World, key: &Keypair, service_pub: &[u8]) -> Option<crate::transport::Secret> {
+    net.nike_derive_secret(nike::SCHEME, key.private.as_bytes(), service_pub).await.ok()
+}
+
 /// Adds a router at `node`.
 pub fn add_router(net: &World, node: [u8; 32]) {
-    let key = Keypair::generate();
+    let key = plugin_key();
     let links: Arc<Mutex<HashMap<ServiceId, Arc<Conn<World>>>>> = Arc::default();
     let net2 = net.clone();
     let k = key.clone();
@@ -33,7 +45,8 @@ pub fn add_router(net: &World, node: [u8; 32]) {
         Box::pin(async move {
             let status = match RouterRequest::decode(&payload) {
                 Ok(RouterRequest::Register(r)) => {
-                    if auth::verify_register(&key, &r).is_err() {
+                    let ss = plugin_secret(&net, &key, &r.public_key).await;
+                    if ss.is_none_or(|ss| auth::verify_register(&ss, &key.public.to_bytes(), &r).is_err()) {
                         Status::BadMac
                     } else {
                         let id = ServiceId::from_public_key(&r.public_key);
@@ -65,18 +78,20 @@ pub fn add_router(net: &World, node: [u8; 32]) {
 
 /// Adds a directory at `node`.
 pub fn add_directory(net: &World, node: [u8; 32]) {
-    let key = Keypair::generate();
+    let key = plugin_key();
     let descs: Arc<Mutex<HashMap<ServiceId, (u64, ServiceDescriptor)>>> = Arc::default();
-    let k = key.clone();
+    let (k, net2) = (key.clone(), net.clone());
     let h: Handler = Arc::new(move |payload: Vec<u8>| {
-        let (key, descs) = (k.clone(), descs.clone());
+        let (net, key, descs) = (net2.clone(), k.clone(), descs.clone());
         Box::pin(async move {
             let mut reply = DirectoryReply { status: Status::Ok as u8, descriptor: None, read_cap: vec![], start_index: vec![] };
             match DirectoryRequest::decode(&payload) {
                 Ok(DirectoryRequest::Advertise(a)) => {
+                    let ss = plugin_secret(&net, &key, &a.descriptor.public_key).await;
+                    let bad = ss.is_none_or(|ss| auth::verify_advertise(&ss, &key.public.to_bytes(), &a).is_err());
                     let mut d = descs.lock().unwrap();
                     let id = a.descriptor.id();
-                    if auth::verify_advertise(&key, &a).is_err() {
+                    if bad {
                         reply.status = Status::BadMac as u8;
                     } else if d.get(&id).is_some_and(|(seq, _)| *seq >= a.seq) {
                         reply.status = Status::Stale as u8;

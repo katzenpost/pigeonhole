@@ -49,7 +49,7 @@ async fn voucher(dir: &std::path::Path) -> (std::path::PathBuf, String) {
 async fn katzenqt_peer_talks_with_eliza() {
     let net = world();
     let data = tempfile::tempdir().unwrap();
-    let mut cfg = Config::new(Keypair::generate(), data.path().join("state"));
+    let mut cfg = Config::new(Keypair::generate(&net).await.unwrap(), data.path().join("state"));
     cfg.display_name = "Eliza".into();
     cfg.poll_interval = POLL;
     let svc = Service::new(cfg, Arc::new(net.clone())).unwrap();

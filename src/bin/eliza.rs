@@ -38,7 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(&args.data_dir)?;
     let backend = Arc::new(ThinClientBackend::dial(&args.daemon).await?);
 
-    let mut cfg = Config::new(Keypair::load_or_generate(&args.data_dir, "eliza")?, args.data_dir.join("state"));
+    let mut cfg = Config::new(Keypair::load_or_generate(&*backend, &args.data_dir, "eliza").await?, args.data_dir.join("state"));
     cfg.display_name = "Eliza".into();
     cfg.advertise = !args.no_advertise;
     cfg.poll_interval = Duration::from_secs_f64(args.poll_interval);

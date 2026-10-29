@@ -476,7 +476,7 @@ impl<B: Backend> Inner<B> {
                     return;
                 }
             };
-            let voucher = match open_forward(&self.cfg.key, &msg) {
+            let voucher = match open_forward(&*self.ph, &self.cfg.key, &msg).await {
                 Ok(v) => v,
                 Err(e) => {
                     log::warn!("a router forwarded something that does not open: {e}");

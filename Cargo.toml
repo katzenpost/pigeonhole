@@ -11,23 +11,21 @@ repository = "https://github.com/katzenpost/pigeonhole_protocols"
 license = "AGPL-3.0-only"
 readme = "README.md"
 keywords = ["katzenpost", "pigeonhole", "mixnet", "group-chat"]
-links = "highctidh_1024"
-include = ["/src/**", "/build.rs", "/README.md", "/LICENSE"]
+include = ["/src/**", "/README.md", "/LICENSE"]
 
 [dependencies]
-katzenpost_thin_client = "0.0.25"
+# katzenpost/thin_client#100: the daemon's NIKE and sealed box requests.
+katzenpost_thin_client = { git = "https://github.com/katzenpost/thin_client", rev = "73bca03442f02c3cfbea510fb9b4c99bc47dc480" }
 base64 = "0.22"
 blake2 = "0.10"
 ciborium = "0.2"
 clap = { version = "4", features = ["derive"] }
-crypto_secretbox = "0.1"
 env_logger = "0.11"
 hkdf = "0.12"
 log = "0.4"
 subtle = "2"
 thiserror = "2"
 tokio-util = { version = "0.7", features = ["rt"] }
-x25519-dalek = { version = "2", features = ["static_secrets"] }
 ed25519-dalek = "2"
 hex = "0.4"
 indexmap = "2"
@@ -40,9 +38,6 @@ sha2 = "0.10"
 sha3 = "0.10"
 tokio = { version = "1", features = ["full"] }
 zeroize = "1"
-
-[build-dependencies]
-cc = "1"
 
 [dev-dependencies]
 tempfile = "3"

@@ -5,7 +5,7 @@ go 1.26.9
 require (
 	github.com/fxamacker/cbor/v2 v2.9.1
 	github.com/katzenpost/hpqc v0.0.94
-	github.com/katzenpost/katzenpost v0.0.108-0.20261028231726-1bffe1e2efe9
+	github.com/katzenpost/katzenpost v0.0.108-0.20261029000543-f02d786115a3
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.1
 	go.etcd.io/bbolt v1.4.3
