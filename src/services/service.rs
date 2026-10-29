@@ -3,6 +3,8 @@
 
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
+use std::io::Write;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -611,8 +613,10 @@ struct Store {
 
 impl Store {
     fn open(dir: &Path) -> Result<Self, Error> {
+        // The state holds stream capabilities, voucher secrets and plaintext.
         for sub in [LINKS, SESSIONS, OFFERS] {
             std::fs::create_dir_all(dir.join(sub))?;
+            std::fs::set_permissions(dir.join(sub), std::fs::Permissions::from_mode(0o700))?;
         }
         Ok(Store { dir: dir.to_path_buf() })
     }
@@ -625,7 +629,7 @@ impl Store {
     fn put(&self, kind: &str, key: &[u8], data: &[u8]) -> Result<(), Error> {
         let path = self.path(kind, key);
         let tmp = path.with_extension("tmp");
-        std::fs::write(&tmp, data)?;
+        std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&tmp)?.write_all(data)?;
         std::fs::rename(&tmp, &path)?;
         Ok(())
     }
