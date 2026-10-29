@@ -16,10 +16,10 @@ service nodes, bootstrap the first contact:
 
 ```mermaid
 sequenceDiagram
-    participant S as Service
-    participant R as Voucher router
-    participant D as Service directory
     participant C as Client
+    participant D as Service directory
+    participant R as Voucher router
+    participant S as Service
     S->>R: register
     S->>D: advertise descriptor
     C->>D: look up service
@@ -27,7 +27,7 @@ sequenceDiagram
     C->>R: route voucher, sealed to the service
     R->>S: forward sealed voucher
     S-->>C: voucher reply
-    Note over S,C: connection: each holds the other's read cap
+    Note over C,S: connection: each holds the other's read cap
 ```
 
 Afterwards the client and the service share a connection of two Pigeonhole
