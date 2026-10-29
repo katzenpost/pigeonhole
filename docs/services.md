@@ -1,43 +1,57 @@
 # Pigeonhole services
 
-A pigeonhole service is a program on the Katzenpost mixnet that speaks only
-Pigeonhole: it has no address and no open port, and everything it sends or
-receives is a box written to or read from the storage replicas. ELIZA in this
-repository is one. Two mixnet services, run as plugins on service nodes, let
-clients find pigeonhole services and start talking to them:
+A pigeonhole service is the responder side of an initiator–responder
+protocol over Pigeonhole. It waits for clients, accepts each new connection,
+and then speaks some protocol with the client over it. That protocol is the
+service's own:
+
+- a bot that joins group chats, speaking katzenqt's chat framing, like ELIZA
+  in this repository;
+- a binary protocol that no human reads, for any other purpose.
+
+A service has no address and no open port. Everything it sends or receives
+is a box written to or read from the storage replicas, so a client cannot
+reach it directly. Two mixnet services, run as plugins on service nodes,
+bootstrap the first contact:
 
 - the **service directory** (capability `service_directory`) holds a
   descriptor for each service, saying how to reach it;
 - the **voucher router** (capability `voucher_router`) relays a client's
   first message to a service.
 
-A client finds a service in the directory, then *dials* it: it exchanges a
-contact voucher with the service through a router. Afterwards the two hold a
-connection made of two Pigeonhole streams, one written by each side, and each
-holds the read capability of the other's stream. No router or directory is
-involved from then on.
-
 ```mermaid
-flowchart LR
-    S[pigeonhole service]
-    C[client]
-    D[(service directory)]
-    R[voucher router]
-    P[(storage replicas)]
-    S -- "1. register: link" --> R
-    S -- "2. advertise descriptor" --> D
-    C -- "3. lookup / list" --> D
-    C -- "4. route sealed voucher" --> R
-    R -- "5. forward over link" --> P
-    P --> S
-    S <-- "6. connection: two streams" --> P
-    P <--> C
+sequenceDiagram
+    participant S as Service
+    participant R as Voucher router
+    participant D as Service directory
+    participant C as Client
+    S->>R: register
+    S->>D: advertise descriptor
+    C->>D: look up service
+    D-->>C: descriptor (key, routers)
+    C->>R: route voucher, sealed to the service
+    R->>S: forward sealed voucher
+    S-->>C: voucher reply
+    Note over S,C: connection: each holds the other's read cap
 ```
 
-Every party reaches the mixnet through a client daemon, kpclientd. The daemon
-does all the cryptography that involves keys: Sphinx, Pigeonhole's BACAP
-streams, the contact voucher operations, NIKE key generation and shared
-secrets, and sealed boxes.
+After the bootstrap the client and the service share a connection made of
+two Pigeonhole streams, one written by each side, and each holds the read
+capability of the other's stream. The router and the directory take no part
+in it.
+
+Every party reaches the mixnet through a client daemon, kpclientd, which does
+all the cryptography that involves keys.
+
+## Contact vouchers
+
+Every connection starts from a contact voucher: one side mints it, the other
+uses it, and both end up holding each other's read cap. A voucher can be
+used once. The protocol is specified in [Contact
+voucher](https://katzenpost.network/docs/specs/contactvoucher/) and narrated
+in [Contact voucher protocol
+narration](https://katzenpost.network/docs/specs/contact_voucher_narration/).
+This document only says who mints the voucher and how it travels.
 
 ## Identity
 
@@ -53,54 +67,12 @@ service node entry. A client trusts a router or a directory because the PKI
 lists it; it trusts nothing a directory says without checking it against the
 PKI.
 
-## Connections
-
-A connection is two Pigeonhole streams. Each side writes messages, one per
-box, to the next box of its own stream, and reads the peer's stream box by
-box, waiting for each one to be written. A message is at most one box;
-larger content is the application's to split.
-
-Storage replicas keep a box for one to two replica epochs. A connection
-keeps every box it sent within its retention period (seven days by default)
-and rewrites them all once a replica epoch, so a peer that is offline for
-days still finds them. Rewrites are idempotent. A connection's state, its
-caps, indices and retained boxes, is saved after every send and receive, so
-it survives a restart of either side.
-
-## The contact voucher handshake
-
-Every connection starts with the contact voucher handshake. One side, the
-*joiner*, mints a voucher; the other, the *inductor*, uses it. The voucher is
-a short secret from which both derive a two-box *voucher stream*:
-
-1. The joiner creates its message stream and mints a voucher for it. It
-   writes the voucher payload to box 0 of the voucher stream.
-2. The voucher reaches the inductor.
-3. The inductor reads box 0, creates its own message stream, and writes a
-   sealed reply to box 1. The reply holds a `WhoReply` naming the inductor
-   and the read cap of its stream.
-4. The inductor tombstones box 0, so the voucher cannot be used again.
-5. The joiner reads box 1 and opens the reply.
-
-Both sides now hold the read cap of the other's stream: the joiner got the
-inductor's from the reply, and the inductor got the joiner's from the
-payload. A voucher can be used once.
-
-Who mints and who inducts depends on how the voucher travels:
-
-| Path | Joiner | Inductor | How the voucher travels |
-|---|---|---|---|
-| Dial through a router | the client | the service | sealed to the service, through a router |
-| Offer | the service | the client | out of band: a user pastes it into a chat app |
-| Register with a router | the service | the router | in a `RegisterRequest` |
-
 ## Registering with routers
 
-A service registers with every voucher router in the PKI. To register, it
-mints a voucher, as the joiner, and sends the router a `RegisterRequest`
-holding the voucher, its public key and a MAC. The router checks the MAC,
-answers `StatusOK`, and inducts the voucher. The resulting connection is the
-service's *link* with the router.
+A service registers with every voucher router in the PKI. It mints a voucher
+and sends it to the router in a `RegisterRequest`, with its public key and a
+MAC. The router checks the MAC, answers `StatusOK`, and uses the voucher. The
+resulting connection is the service's *link* with the router.
 
 The router writes each sealed voucher addressed to the service to its own
 stream of the link, as a `LinkMessage`. It keeps them rewritten for its
@@ -150,11 +122,11 @@ the others' routers.
 To dial a service, a client:
 
 1. looks up the service's descriptor;
-2. mints a voucher, as the joiner;
+2. mints a voucher;
 3. seals the voucher to the service's public key, as an anonymous sealed box;
 4. sends a `RouteRequest` holding the `ServiceID` and the sealed voucher to
    one of the routers in the descriptor;
-5. waits for the service's reply in box 1 of the voucher stream.
+5. waits for the service's voucher reply.
 
 A client tries only routers the PKI lists, since a descriptor comes from an
 untrusted directory, and gives each five minutes before trying the next.
@@ -162,25 +134,38 @@ untrusted directory, and gives each five minutes before trying the next.
 The router looks up the link of the `ServiceID` and forwards the sealed
 voucher over it, answering `StatusOK`, or `StatusUnknownService` if it has no
 link with that service. It cannot open the voucher. The service opens it with
-its private key and inducts it. A service remembers each voucher it opened
-for an hour, so one forwarded twice is handled once, and gives each
-handshake ten minutes.
+its private key and uses it. A service remembers each voucher it opened for
+an hour, so one forwarded twice is handled once, and gives each new
+connection ten minutes to complete.
 
 The router learns which service a voucher is for, and when, but not which
 client sent it: the client's request travels over Sphinx with a reply
 SURB.
 
-A chat app that cannot route vouchers itself can mint one, as the joiner, and
-hand it to `pigeonhole-voucher send SERVICE_IDENTITY VOUCHER_TOKEN`, which
-routes it to the service; the conversation then opens in the app.
+A chat app that cannot route vouchers itself can mint one and hand it to
+`pigeonhole-voucher send SERVICE_IDENTITY VOUCHER_TOKEN`, which routes it to
+the service; the conversation then opens in the app.
 
 ## Offering a voucher
 
-A service can also mint vouchers itself, as the joiner, for clients to
-induct. It keeps each one, across restarts, until a client uses it. ELIZA
-keeps three on offer in `data_dir/vouchers/`, each as the base64 text a
-katzenqt user pastes into "Induct via voucher". This needs no router or
-directory.
+A service can also mint vouchers itself for clients to use. It keeps each
+one, across restarts, until a client uses it. ELIZA keeps three on offer in
+`data_dir/vouchers/`, each as the base64 text a katzenqt user pastes into
+"Induct via voucher". This needs no router or directory.
+
+## Connections
+
+Each side of a connection writes messages, one per box, to the next box of
+its own stream, and reads the peer's stream box by box, waiting for each one
+to be written. A message is at most one box; larger content is the
+application's to split.
+
+Storage replicas keep a box for one to two replica epochs. A connection
+keeps every box it sent within its retention period (seven days by default)
+and rewrites them all once a replica epoch, so a peer that is offline for
+days still finds them. Rewrites are idempotent. A connection's state, its
+caps, indices and retained boxes, is saved after every send and receive, so
+it survives a restart of either side.
 
 ## Request authentication
 
@@ -343,8 +328,8 @@ type Snapshot struct {
 
 ### The WhoReply
 
-The inductor's sealed reply holds a `WhoReply` in the shape of katzenqt's
-group chat `ReplyWho`, with one member: the inductor.
+The voucher reply holds a `WhoReply` in the shape of katzenqt's group chat
+`ReplyWho`, with one member: the side that used the voucher.
 
 ```go
 type whoReply struct {
@@ -353,7 +338,7 @@ type whoReply struct {
 
 type pleaseAdd struct {
 	DisplayName string `cbor:"display_name"`
-	ReadCap     []byte `cbor:"read_cap"` // the inductor's message stream
+	ReadCap     []byte `cbor:"read_cap"` // its message stream
 }
 ```
 
@@ -445,8 +430,8 @@ impl<B: Backend> Service<B> {
 ```
 
 `Config::new(key, data_dir)` gives the defaults: a display name, advertising
-on, 64 concurrent sessions, seven days' retention, a ten-minute handshake
-timeout and a ten-minute PKI rescan. A `Session` derefs to its `Conn`; it
+on, 64 concurrent sessions, seven days' retention, a ten-minute timeout for
+new connections and a ten-minute PKI rescan. A `Session` derefs to its `Conn`; it
 reports whether it was `restored()` from disk.
 
 A connection, on either side:
