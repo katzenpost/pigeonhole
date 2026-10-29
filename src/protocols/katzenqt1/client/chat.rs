@@ -14,7 +14,10 @@ use crate::transport::Backend;
 use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::protocols::katzenqt1::client::exec::{Executor, Outcome};
-use crate::protocols::katzenqt1::client::store::{Options, Store, StoreFiles};
+use crate::protocols::katzenqt1::client::exec::Files;
+use crate::protocols::katzenqt1::client::store::{Options, Store, StoreError, StoreFiles};
+use crate::secret::Secret;
+use zeroize::Zeroizing;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ClientError {
@@ -29,6 +32,10 @@ pub enum ClientError {
     RemoveSelf,
     FileTooLarge,
     EmptyMessage,
+    /// The state is sealed, and not with the key given, or none was given; or it was changed.
+    Locked,
+    /// The state is not sealed but a key was given: [`Store::reseal`] seals it.
+    Unsealed,
     /// The state could not be saved, so the client stopped.
     Store(String),
 }
@@ -48,6 +55,8 @@ impl std::fmt::Display for ClientError {
             RemoveSelf => "client: we cannot remove ourselves",
             FileTooLarge => "client: file too large to send",
             EmptyMessage => "client: nothing to send",
+            Locked => "client: the state is sealed with another key, or changed",
+            Unsealed => "client: the state is not sealed",
             Store(e) => return write!(f, "client: {e}"),
         })
     }
@@ -66,6 +75,16 @@ pub struct Config {
     pub epoch_poll: Duration,
     /// For tests only: see [`Options::no_sync`].
     pub no_sync: bool,
+    /// The key of 32 bytes that seals the state, if it is sealed: see [`Options::key`].
+    pub key: Option<Secret>,
+}
+
+fn store_error(x: StoreError) -> ClientError {
+    match x {
+        StoreError::Locked => ClientError::Locked,
+        StoreError::Unsealed => ClientError::Unsealed,
+        x => ClientError::Store(x.to_string()),
+    }
 }
 
 /// What changed; an app asks for what it shows with [`Client::chats`] and [`Client::lines`].
@@ -98,6 +117,7 @@ pub struct Client {
     error: Arc<Mutex<Option<String>>>,
     loop_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     dir: PathBuf,
+    files: StoreFiles,
 }
 
 struct Worker<B: Backend> {
@@ -295,12 +315,12 @@ impl Client {
             &cfg.state_dir,
             Options {
                 no_sync: cfg.no_sync,
+                key: cfg.key,
             },
         )
-        .map_err(|e| ClientError::Store(e.to_string()))?;
-        let state = st
-            .load(&cfg.name)
-            .map_err(|e| ClientError::Store(e.to_string()))?;
+        .map_err(store_error)?;
+        let state = st.load(&cfg.name).map_err(store_error)?;
+        let files = st.files();
         let backend = Arc::new(backend);
         let max = backend
             .max_plaintext()
@@ -400,6 +420,7 @@ impl Client {
             error,
             loop_task: Mutex::new(Some(loop_task)),
             dir: cfg.state_dir,
+            files,
         })
     }
 
@@ -647,9 +668,17 @@ impl Client {
         }
     }
 
-    /// Where an attachment is kept.
+    /// Where an attachment is kept; sealed, if the state is.
     pub fn file_path(&self, a: &Attachment) -> PathBuf {
         self.dir.join(&a.file)
+    }
+
+    /// An attachment's bytes, opened if the state is sealed.
+    pub fn read_file(&self, a: &Attachment) -> Result<Zeroizing<Vec<u8>>> {
+        self.files
+            .read(&a.file)
+            .map(Zeroizing::new)
+            .map_err(|e| ClientError::Store(e.to_string()))
     }
 }
 

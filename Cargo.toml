@@ -2,7 +2,7 @@
 name = "pigeonhole_protocols"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.89"
 authors = ["David Stainton"]
 homepage = "https://katzenpost.network"
 description = "Protocols over Katzenpost's Pigeonhole storage: group chat, and services with their clients"
@@ -18,6 +18,7 @@ include = ["/src/**", "/README.md", "/LICENSE"]
 katzenpost_thin_client = { git = "https://github.com/katzenpost/thin_client", rev = "73bca03442f02c3cfbea510fb9b4c99bc47dc480" }
 base64 = "0.22"
 blake2 = "0.10"
+chacha20poly1305 = "0.10"
 ciborium = "0.2"
 clap = { version = "4", features = ["derive"] }
 env_logger = "0.11"

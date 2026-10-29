@@ -11,7 +11,7 @@ fn failed_keep_leaves_nothing() {
             .unwrap_or_else(|_| format!("{}/scratch/tmp", std::env::var("HOME").unwrap())),
     )
     .unwrap();
-    let mut st = Store::open(dir.path(), Options { no_sync: true }).unwrap();
+    let mut st = Store::open(dir.path(), Options { no_sync: true, key: None }).unwrap();
     let taken = dir.path().join("attachments/g/a.bin");
     std::fs::create_dir_all(taken.join("in-the-way")).unwrap();
     let r = StepResult {
