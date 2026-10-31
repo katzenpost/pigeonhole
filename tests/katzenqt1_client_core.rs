@@ -406,3 +406,28 @@ fn file_limits_and_deletes() {
     w.run_until(|_| false, LIMIT);
     assert!(w.members[0].files.0.lock().unwrap().is_empty());
 }
+
+/// The replicas are at epoch 491 when the group is made, as on a real network, and the engines
+/// heard so before. The first message must still be found by the acknowledgement that names it
+/// after the next epoch report.
+#[test]
+fn group_made_late_in_a_high_epoch_keeps_its_records() {
+    let mut w = world(&["alice", "bob"]);
+    w.sim.set_epoch(491);
+    w.feed(0, Input::Epoch { n: 491 });
+    w.feed(1, Input::Epoch { n: 491 });
+    found_and_join(&mut w);
+    send(&mut w, 0, "first");
+    assert!(w.run_until(|w| w.says(1, "g", "first"), LIMIT));
+    w.feed(0, Input::Epoch { n: 491 });
+    w.feed(1, Input::Epoch { n: 491 });
+    send(&mut w, 1, "read it");
+    let acked = |w: &World| {
+        let c = w.chat(0, "g").unwrap();
+        c.log.iter().any(|l| l.text == "first" && c.acknowledged(l))
+    };
+    assert!(
+        w.run_until(acked, LIMIT),
+        "the acknowledgement of a message written before the epoch report is lost"
+    );
+}
