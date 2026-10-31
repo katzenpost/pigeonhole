@@ -1,6 +1,6 @@
 # pigeonhole
 
-Protocols over Katzenpost's Pigeonhole storage, in Go and Rust: group communication among peers under `protocols/`, and mixnet services (responders) and their clients (initiators) under `services/` and `clients/`.
+Protocols over Katzenpost's Pigeonhole storage, in Go, Rust and Python: group communication among peers under `protocols/`, and mixnet services (responders) and their clients (initiators) under `services/` and `clients/`.
 
 Each protocol under `protocols/` has a sans-IO state machine, an engine that is a whole client
 without IO, and a client that carries the engine's work out over a transport and keeps its state
@@ -30,7 +30,7 @@ on disk. Every step's changes are saved, synced, before any of the work it asks 
 
 `examples/` has a minimal group chat in Go and in Rust, as an introduction to the client.
 
-Go is at the root; Rust is one crate, `pigeonhole_protocols`, with `Cargo.toml` at the top and its source in `src/`. `testdata/` holds vectors shared with cryptlib, katzenqt and
+Go is at the root; Rust is one crate, `pigeonhole_protocols`, with `Cargo.toml` at the top and its source in `src/`; Python is the package `pigeonhole-protocols` under `py/` (see `py/README.md`), which katzenrns builds its Reticulum client on. `testdata/` holds vectors shared with cryptlib, katzenqt and
 group_chat_client; `SOURCES` names the commits they were copied from.
 `protocols/katzenqt1/client/testdata/scenarios` holds this repository's own client scenarios,
 which the Go and Rust clients both run.
