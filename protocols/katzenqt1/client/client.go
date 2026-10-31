@@ -167,6 +167,11 @@ func Open(ctx context.Context, cfg Config) (*Client, error) {
 		return nil, err
 	}
 	c := &Client{cfg: cfg, st: st, eng: engine.New(s, max), inbox: make(chan request)}
+	// The replicas' epoch before anything is written, when the backend can say; the epoch
+	// watcher reports it again later.
+	if e, err := cfg.Backend.ReplicaEpoch(ctx); err == nil {
+		c.eng.Epoch = int(e)
+	}
 	c.ctx, c.cancel = context.WithCancel(context.Background())
 	c.exec = &Executor{Backend: cfg.Backend, Files: store.Files{S: st}, Sleep: sleep}
 	res := c.eng.Resume(now())

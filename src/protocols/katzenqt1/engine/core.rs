@@ -84,6 +84,10 @@ impl Flight {
 pub struct Engine {
     pub state: State,
     pub max_plaintext: usize,
+    /// The replicas' epoch as last reported; a group made now starts there, so that what it
+    /// writes before the next report is not taken for hundreds of epochs old when the report
+    /// comes.
+    pub epoch: usize,
     flight: Flight,
 }
 
@@ -907,6 +911,7 @@ impl Engine {
         Engine {
             state,
             max_plaintext,
+            epoch: 0,
             flight: Flight::default(),
         }
     }
@@ -1070,6 +1075,7 @@ impl Engine {
                 return;
             }
             Input::Epoch { n } => {
+                self.epoch = self.epoch.max(*n);
                 let mut cx = Cx {
                     out,
                     flight: &mut self.flight,
@@ -1093,6 +1099,7 @@ impl Engine {
         let Some(id) = chat_of(&input).cloned() else {
             return;
         };
+        let epoch = self.epoch;
         // Inputs that only tell what is under way.
         match &input {
             Input::Loaded { job, .. } => {
@@ -1145,12 +1152,15 @@ impl Engine {
                     cx.notice(c, NoticeKind::Minting, &[]);
                     return;
                 }
-                c.group = Some(Group::found(
+                let mut g = Group::found(
                     &keypair.read_cap,
                     &[&keypair.read_cap],
                     Retention::default(),
                     256,
-                ));
+                );
+                let es = g.handle(Event::EpochChanged { epoch });
+                c.group = Some(g);
+                cx.effects(c, es);
                 cx.notice(c, NoticeKind::NewGroup, &[]);
             }
             Input::Minted { minted, box1, .. } => {
@@ -1189,9 +1199,12 @@ impl Engine {
                 let wc = opened.mutated_write_cap;
                 c.next_write = wc[wc.len() - wire::INDEX_SIZE..].to_vec();
                 c.write_cap = wc;
+                let mut g = g;
+                let es = g.handle(Event::EpochChanged { epoch });
                 c.group = Some(g);
                 c.joining = None;
                 c.cursors.clear();
+                cx.effects(c, es);
                 cx.notice(c, NoticeKind::Joined, &[]);
             }
             Input::Induct { code, .. } => {

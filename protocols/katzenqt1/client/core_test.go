@@ -286,3 +286,28 @@ func TestVoucherCode(t *testing.T) {
 		t.Fatal("junk taken for a voucher")
 	}
 }
+
+// TestGroupMadeLateInAHighEpochKeepsItsRecords: the replicas are at epoch 491 when the group is
+// made, as on a real network, and the engines heard so before. The first message must still be
+// found by the acknowledgement that names it after the next epoch report.
+func TestGroupMadeLateInAHighEpochKeepsItsRecords(t *testing.T) {
+	w := newWorld("alice", "bob")
+	w.sim.SetEpoch(491)
+	w.feed(0, engine.Epoch{N: 491})
+	w.feed(1, engine.Epoch{N: 491})
+	foundAndJoin(t, w)
+	send(w, 0, "g", "first")
+	if !w.runUntil(func() bool { return w.says(1, "g", "first") }, limit) {
+		t.Fatal("bob does not read alice")
+	}
+	w.feed(0, engine.Epoch{N: 491})
+	w.feed(1, engine.Epoch{N: 491})
+	send(w, 1, "g", "read it")
+	acked := func() bool {
+		c := w.chatOf(0, "g")
+		return slices.ContainsFunc(c.Log, func(l *engine.Line) bool { return l.Text == "first" && c.Acknowledged(l) })
+	}
+	if !w.runUntil(acked, limit) {
+		t.Fatal("the acknowledgement of a message written before the epoch report is lost")
+	}
+}

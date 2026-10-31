@@ -327,6 +327,11 @@ impl Client {
             .await
             .map_err(|e| ClientError::Store(e.to_string()))?;
         let mut eng = Engine::new(state, max);
+        // The replicas' epoch before anything is written, when the backend can say; the epoch
+        // watcher reports it again later.
+        if let Ok(e) = backend.replica_epoch().await {
+            eng.epoch = e as usize;
+        }
         let res = eng.resume(now());
         st.commit(&eng.state, &res)
             .map_err(|e| ClientError::Store(e.to_string()))?;

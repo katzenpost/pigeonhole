@@ -22,9 +22,13 @@ func Backoff(n int) int { return min(60000, 2000<<min(n, 5)) }
 type Engine struct {
 	State        *State
 	MaxPlaintext int
-	flight       flight
-	now          int64
-	out          Result
+	// Epoch is the replicas' epoch as last reported; a group made now starts there, so that
+	// what it writes before the next report is not taken for hundreds of epochs old when the
+	// report comes.
+	Epoch  int
+	flight flight
+	now    int64
+	out    Result
 }
 
 func New(s *State, maxPlaintext int) *Engine {
@@ -536,6 +540,7 @@ func (e *Engine) handle(in Input) {
 			return
 		}
 		c.Group = member.Found(in.Keypair.ReadCap, [][]byte{in.Keypair.ReadCap}, member.DefaultRetention(), 256)
+		e.effects(c, c.Group.Handle(member.EpochChanged{Epoch: e.Epoch}))
 		e.notice(c, NewGroup)
 	case Minted:
 		c := chat(in.Chat)
@@ -566,6 +571,7 @@ func (e *Engine) handle(in Input) {
 		wc := in.Opened.MutatedWriteCap
 		c.Group, c.WriteCap, c.NextWrite = g, wc, member.Index(wc[len(wc)-wire.IndexSize:])
 		c.Joining, c.Cursors = nil, ordmap.Map[member.Key, member.Index]{}
+		e.effects(c, g.Handle(member.EpochChanged{Epoch: e.Epoch}))
 		e.notice(c, Joined)
 	case Induct:
 		c := chat(in.Chat)
@@ -802,6 +808,7 @@ func (e *Engine) handle(in Input) {
 		}
 		e.effects(c, c.Group.Handle(member.IndexesDerived{Stream: in.Stream, Indexes: in.Indexes}))
 	case Epoch:
+		e.Epoch = max(e.Epoch, in.N)
 		for _, c := range s.Chats {
 			if c.Group == nil || c.Group.Epoch >= in.N {
 				continue
