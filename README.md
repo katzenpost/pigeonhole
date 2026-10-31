@@ -1,6 +1,6 @@
 # pigeonhole
 
-Group communication protocols over Katzenpost's Pigeonhole storage, in Go and Rust.
+Protocols over Katzenpost's Pigeonhole storage, in Go and Rust: group communication among peers under `protocols/`, and mixnet services (responders) and their clients (initiators) under `services/` and `clients/`.
 
 Each protocol under `protocols/` has a sans-IO state machine, an engine that is a whole client
 without IO, and a client that carries the engine's work out over a transport and keeps its state
@@ -17,6 +17,16 @@ on disk. Every step's changes are saved, synced, before any of the work it asks 
   for tests, and served from one process to others (`remote`, JSON-RPC).
 - `cmd/katzenqt1` (Go) and `src/bin/katzenqt1.rs` (`katzenqt1-rs`): clients without a user
   interface, for scripts and interop tests; `cmd/pigeonhole-sim` serves an in-memory Pigeonhole.
+
+- `services`: Rust's service framework (`src/services`), wire compatible with katzenpost's Go
+  `pigeonservice`, which services and the voucher router and service directory plugins use;
+  `eliza`, an ELIZA bot katzenqt users talk to by pasting one of its vouchers (`src/bin/eliza.rs`);
+  `motd`, the message of the day service in Go (`services/motd`, `cmd/motd-service`).
+- `clients`: dialling services; `clients/motd` and `cmd/motd` fetch the message of the day.
+- `services/interop`: the services against a real client daemon, couriers, replicas and the Go
+  router and directory, with katzenpost's localnet; `ELIZA_BIN` adds the Rust bot.
+  `cmd/pigeonservice-vectors` writes `testdata/services/vectors.json`, which the Rust framework
+  checks itself against.
 
 `examples/` has a minimal group chat in Go and in Rust, as an introduction to the client.
 

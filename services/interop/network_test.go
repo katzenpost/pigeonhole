@@ -1,0 +1,138 @@
+package interop
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/katzenpost/katzenpost/client/config"
+	"github.com/katzenpost/katzenpost/client/localnet"
+	"github.com/katzenpost/katzenpost/client/thin"
+	"github.com/katzenpost/katzenpost/core/log"
+	ps "github.com/katzenpost/katzenpost/pigeonservice"
+	"github.com/katzenpost/katzenpost/pigeonservice/directory"
+	"github.com/katzenpost/katzenpost/pigeonservice/router"
+)
+
+// network is where a test runs: katzenpost's localnet, with the Go router and directory in the
+// test process, or, when THIN_CONFIG names a thin client config, a running mixnet such as the
+// docker testnet, whose service nodes run the router and directory plugins.
+type network struct {
+	// thin connects a new thin client to the daemon.
+	thin func() *thin.ThinClient
+	// daemon is the daemon's address, as eliza's --daemon takes it.
+	daemon string
+	// dir holds the test's logs.
+	dir  string
+	log  *log.Backend
+	poll time.Duration
+	// timeout bounds one test.
+	timeout time.Duration
+}
+
+func (n *network) pigeonhole() ps.Pigeonhole { return ps.NewThinPigeonhole(n.thin()) }
+
+func newNetwork(t *testing.T) *network {
+	if testing.Short() {
+		t.Skip("needs a mixnet: localnet's real CTIDH replicas or a running testnet; minutes")
+	}
+	if path := os.Getenv("THIN_CONFIG"); path != "" {
+		return mixnet(t, path)
+	}
+	return localnetWorld(t)
+}
+
+// mixnet connects to the running mixnet whose thin client config is at path.
+func mixnet(t *testing.T, path string) *network {
+	cfg, err := thin.LoadFile(path)
+	require.NoError(t, err)
+	var daemon string
+	switch {
+	case cfg.Dial.Tcp != nil:
+		daemon = cfg.Dial.Tcp.Address
+	case cfg.Dial.Unix != nil:
+		daemon = cfg.Dial.Unix.Address
+	default:
+		t.Fatalf("%s: eliza dials only TCP or unix sockets", path)
+	}
+	dir := t.TempDir()
+	logBackend, err := log.New(filepath.Join(dir, "test.log"), "INFO", false)
+	require.NoError(t, err)
+	n := &network{daemon: daemon, dir: dir, log: logBackend, poll: time.Second, timeout: 45 * time.Minute}
+	var clients []*thin.ThinClient
+	var mu sync.Mutex
+	n.thin = func() *thin.ThinClient {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		for {
+			c := thin.NewThinClient(cfg, &config.Logging{File: filepath.Join(dir, "thin.log"), Level: "INFO"})
+			err := c.Dial()
+			if err == nil && c.IsConnected() {
+				mu.Lock()
+				clients = append(clients, c)
+				mu.Unlock()
+				return c
+			}
+			if err == nil {
+				c.Close()
+			}
+			select {
+			case <-ctx.Done():
+				require.NoError(t, err, "the thin client did not connect to %s", daemon)
+				require.Fail(t, "the daemon is not connected to the mixnet")
+			case <-time.After(time.Second):
+			}
+		}
+	}
+	t.Cleanup(func() {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, c := range clients {
+			c.Close()
+		}
+	})
+	return n
+}
+
+// localnetWorld is a localnet with storage, a voucher router and a directory.
+func localnetWorld(t *testing.T) *network {
+	n := localnet.New(t)
+	n.AddStorage(3)
+	routerKey, dirKey := pluginKey(t), pluginKey(t)
+	var r *router.Router
+	var d *directory.Directory
+	var ready sync.WaitGroup
+	ready.Add(1)
+	n.AddHandler(ps.RouterCapability, ps.PluginParams(routerKey), func(p []byte) []byte {
+		ready.Wait()
+		return r.Handle(p)
+	})
+	n.AddHandler(ps.DirectoryCapability, ps.PluginParams(dirKey), func(p []byte) []byte {
+		ready.Wait()
+		return d.Handle(p)
+	})
+	n.Start()
+	var err error
+	r, err = router.New(router.Config{
+		Key: routerKey, DBPath: filepath.Join(t.TempDir(), "router.db"),
+		PollInterval: localPoll, Retention: time.Hour, Log: n.Log.GetLogger("router"),
+	}, ps.NewThinPigeonhole(n.ThinClient()))
+	require.NoError(t, err)
+	t.Cleanup(func() { r.Close() })
+	d, err = directory.New(directory.Config{
+		Key: dirKey, DBPath: filepath.Join(t.TempDir(), "directory.db"),
+		RefreshInterval: time.Hour, Log: n.Log.GetLogger("directory"),
+	}, ps.NewThinPigeonhole(n.ThinClient()))
+	require.NoError(t, err)
+	t.Cleanup(func() { d.Close() })
+	ready.Done()
+	return &network{
+		thin: n.ThinClient, daemon: filepath.Join(n.Dir(), "kpclientd.sock"),
+		dir: n.Dir(), log: n.Log, poll: localPoll, timeout: 20 * time.Minute,
+	}
+}

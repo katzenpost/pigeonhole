@@ -3,13 +3,20 @@
 //! different one is refused, and a tombstone is always stored. A write cap here is a signing seed,
 //! then the read cap: its public key and the stream's first index.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use crate::protocols::katzenqt1::member::{hkdf, next_index};
 use rand::RngCore;
 
-use crate::transport::{Backend, Error, Inducted, Keypair, Minted, Opened, Read, Result, Secret};
+use crate::transport::{
+    Backend, Error, Inducted, Keypair, Minted, Opened, Read, Result, Secret, ServiceNode,
+};
+
+/// A mixnet service: it takes a request's payload and returns the reply.
+pub type Handler = Arc<dyn Fn(Vec<u8>) -> Pin<Box<dyn Future<Output = Vec<u8>> + Send>> + Send + Sync>;
 
 /// A box: its stream's key and its Idx64.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -31,6 +38,8 @@ pub struct State {
     pub refused: Vec<BoxName>,
     pub writes: usize,
     pub reads: usize,
+    handlers: HashMap<([u8; 32], Vec<u8>), Handler>,
+    services: HashMap<String, Vec<ServiceNode>>,
 }
 
 /// The replica every handle on it shares.
@@ -77,6 +86,24 @@ fn read_cap_of(write_cap: &[u8]) -> Result<&[u8]> {
 }
 
 impl World {
+    /// Adds a mixnet service, `capability`, at `endpoint` on the node `node`.
+    pub fn add_service(
+        &self,
+        capability: &str,
+        node: [u8; 32],
+        endpoint: &str,
+        params: BTreeMap<String, serde_cbor::Value>,
+        handler: Handler,
+    ) {
+        let mut s = self.0.lock().unwrap();
+        s.handlers.insert((node, endpoint.as_bytes().to_vec()), handler);
+        s.services.entry(capability.into()).or_default().push(ServiceNode {
+            node_id_hash: node,
+            endpoint: endpoint.as_bytes().to_vec(),
+            params,
+        });
+    }
+
     pub fn set_epoch(&self, e: u64) {
         self.0.lock().unwrap().epoch = e;
     }
@@ -216,6 +243,57 @@ impl Backend for World {
             mutated_write_cap: write_cap.into(),
         })
     }
+
+    async fn request(&self, node: &[u8; 32], endpoint: &[u8], payload: &[u8]) -> Result<Vec<u8>> {
+        let handler = self.0.lock().unwrap().handlers.get(&(*node, endpoint.to_vec())).cloned();
+        match handler {
+            Some(h) => Ok(h(payload.to_vec()).await),
+            // Nobody answers; the daemon would retransmit until the caller gives up.
+            None => std::future::pending().await,
+        }
+    }
+
+    async fn services(&self, capability: &str) -> Result<Vec<ServiceNode>> {
+        Ok(self.0.lock().unwrap().services.get(capability).cloned().unwrap_or_default())
+    }
+
+    // A NIKE and sealed boxes without cryptography, the sizes of X25519-CTIDH1024's: a public key
+    // is a hash of the private key, a shared secret a hash of both public keys, and a box the
+    // recipient's public key and then the plaintext.
+
+    async fn nike_generate_key_pair(&self, _scheme: &str) -> Result<(Vec<u8>, Secret)> {
+        let (public, private) = nike_keypair();
+        Ok((public, private.into()))
+    }
+
+    async fn nike_derive_secret(&self, _scheme: &str, private: &[u8], public: &[u8]) -> Result<Secret> {
+        let ours = nike_public(private);
+        let (a, b) = if ours <= public.to_vec() { (ours, public.to_vec()) } else { (public.to_vec(), ours) };
+        Ok(hkdf(&[a, b].concat(), b"sim nike secret", 32).into())
+    }
+
+    async fn box_seal(&self, _scheme: &str, public: &[u8], plaintext: &[u8]) -> Result<Vec<u8>> {
+        Ok([public, plaintext].concat())
+    }
+
+    async fn box_open(&self, _scheme: &str, private: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>> {
+        let public = nike_public(private);
+        match ciphertext.strip_prefix(public.as_slice()) {
+            Some(plaintext) => Ok(plaintext.to_vec()),
+            None => Err(Error::Other("sim: box sealed to another key".into())),
+        }
+    }
+}
+
+fn nike_public(private: &[u8]) -> Vec<u8> {
+    hkdf(private, b"sim nike public", 160)
+}
+
+/// A keypair of the sim's NIKE, as its public and private keys.
+pub fn nike_keypair() -> (Vec<u8>, Vec<u8>) {
+    let mut private = vec![0u8; 162];
+    rand::thread_rng().fill_bytes(&mut private);
+    (nike_public(&private), private)
 }
 
 #[cfg(test)]
