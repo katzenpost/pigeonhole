@@ -171,11 +171,16 @@ def test_group_made_late_in_a_high_epoch_keeps_its_records(world, traced, monkey
     alice, bob = join(make, sim)
     alice.feed(eng.Send("g", "first"))
     settle([alice, bob], 30_000)
+    bob.feed(eng.Send("g", "read it"))
+    settle([alice, bob], 60_000)
+    # Both wrote before the next report; neither record may go with it.
     alice.feed(eng.Epoch(491))
     bob.feed(eng.Epoch(491))
-    bob.feed(eng.Send("g", "read it"))
+    alice.feed(eng.Send("g", "and you"))
     settle([alice, bob], 60_000)
     line = [l for l in alice.lines("g") if l.notice is None and l.text == "first"][0]
     assert alice.state.chat("g").acknowledged(line)
+    line = [l for l in bob.lines("g") if l.notice is None and l.text == "read it"][0]
+    assert bob.state.chat("g").acknowledged(line)
     alice.close()
     bob.close()
