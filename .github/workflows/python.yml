@@ -1,0 +1,24 @@
+name: python
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: scripts/verify-testdata.sh
+      # hpqc builds highctidh from source.
+      - run: sudo apt-get update && sudo apt-get install -y gcc
+      - run: pip install -e "py[test]"
+      - run: cd py && pytest -q
+      - uses: actions/checkout@v4
+        with:
+          repository: katzenpost/katzenqt
+          path: katzenqt
+          fetch-depth: 0
+      - run: py/scripts/verify-member.sh katzenqt

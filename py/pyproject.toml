@@ -1,0 +1,28 @@
+# SPDX-FileCopyrightText: © 2026 David Stainton
+# SPDX-License-Identifier: AGPL-3.0-only
+
+[build-system]
+requires = ["flit_core >=3.11"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "pigeonhole-protocols"
+version = "0.0.1"
+description = "Group communication protocols over Katzenpost's Pigeonhole storage: the katzenqt1 group chat member, engine and client."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "AGPL-3.0-only"
+authors = [{ name = "David Stainton" }]
+dependencies = [
+    "hpqc>=0.0.93",
+    "cbor2>=5.4",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+
+[tool.flit.module]
+name = "pigeonhole_protocols"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

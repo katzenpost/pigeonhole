@@ -2,7 +2,7 @@ CRYPTLIB ?= $(HOME)/cryptlib
 KATZENQT ?= $(HOME)/katzenqt
 GCC ?= $(HOME)/group_chat_client
 
-.PHONY: test vet sync-testdata verify-testdata
+.PHONY: test vet py-test sync-testdata verify-testdata verify-member
 
 export TMPDIR ?= $(HOME)/scratch/tmp
 
@@ -12,6 +12,13 @@ test:
 
 vet:
 	go vet ./...
+
+# The Python implementation, under py/.
+py-test:
+	cd py && python -m pytest -q
+
+verify-member:
+	py/scripts/verify-member.sh $(KATZENQT)
 
 sync-testdata:
 	CRYPTLIB=$(CRYPTLIB) GCC=$(GCC) scripts/sync-testdata.sh
