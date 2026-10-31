@@ -565,9 +565,13 @@ def membership(g: Group) -> bytes:
 
 
 class Engine:
-    def __init__(self, state: State, max_plaintext: int):
+    def __init__(self, state: State, max_plaintext: int, epoch: int = 0):
         self.state = state
         self.max_plaintext = max_plaintext
+        # The replicas' epoch as last reported; a group made now starts there,
+        # so that what it writes before the next report is not taken for
+        # hundreds of epochs old when the report comes.
+        self.epoch = epoch
         # Under way on the network; not saved, since a restart begins it again.
         self._writing: set = set()
         self._reading: set = set()  # (chat, stream) with a read out or a wake pending
@@ -804,6 +808,7 @@ class Engine:
                 self._notice(c, "minting")
                 return
             c.group = new_group(inp.keypair.read_cap)
+            self._effects(c, c.group.handle(mev.EpochChanged(self.epoch)))
             self._notice(c, "new_group")
         elif isinstance(inp, MintedIn):
             c = self._chat(inp.chat)
@@ -831,6 +836,7 @@ class Engine:
             wc = inp.opened.mutated_write_cap
             c.group, c.write_cap, c.next_write = g, wc, wc[len(wc) - INDEX_SIZE :]
             c.joining, c.cursors = None, {}
+            self._effects(c, g.handle(mev.EpochChanged(self.epoch)))
             self._notice(c, "joined")
         elif isinstance(inp, Induct):
             c = self._chat(inp.chat)
@@ -980,6 +986,7 @@ class Engine:
                 return
             self._effects(c, c.group.handle(mev.IndexesDerived(inp.stream, tuple(inp.indexes))))
         elif isinstance(inp, Epoch):
+            self.epoch = max(self.epoch, inp.n)
             for c in s.chats:
                 if c.group is None or c.group.epoch >= inp.n:
                     continue

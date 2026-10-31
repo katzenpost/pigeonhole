@@ -162,7 +162,7 @@ class Client:
         self.backend = backend
         self.store = Store(state_dir)
         self.state = self.store.load(name)
-        self.engine = eng.Engine(self.state, backend.max_plaintext())
+        self.engine = eng.Engine(self.state, backend.max_plaintext(), epoch=self._epoch_now(backend))
         self.on_change = on_change
         self._lock = threading.RLock()
         self._closed = False
@@ -171,6 +171,15 @@ class Client:
         self._timers: List[threading.Timer] = []
         self._epoch_thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
+
+    @staticmethod
+    def _epoch_now(backend: be.Backend) -> int:
+        """The replicas' epoch before anything is written, when the backend
+        can say; the epoch watcher reports it again later."""
+        try:
+            return backend.replica_epoch()
+        except Exception:
+            return 0
 
     # ---- time ----
 

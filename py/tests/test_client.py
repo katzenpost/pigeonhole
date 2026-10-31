@@ -156,3 +156,22 @@ def test_scan_and_remove(world):
     assert [n for _, n in alice.members("g")] == ["alice"]
     alice.close()
     bob.close()
+
+
+def test_group_made_late_in_a_high_epoch_keeps_its_records(world):
+    """The replicas are at epoch 491 when the group is made, as on a real
+    network. The first message must still be found by the acknowledgement
+    that names it after the next epoch report."""
+    sim, clock, make = world
+    sim.epoch = 491
+    alice, bob = join(make, sim)
+    alice.feed(eng.Send("g", "first"))
+    settle([alice, bob], 30_000)
+    alice.feed(eng.Epoch(491))
+    bob.feed(eng.Epoch(491))
+    bob.feed(eng.Send("g", "read it"))
+    settle([alice, bob], 60_000)
+    line = [l for l in alice.lines("g") if l.notice is None and l.text == "first"][0]
+    assert alice.state.chat("g").acknowledged(line)
+    alice.close()
+    bob.close()
