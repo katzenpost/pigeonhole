@@ -856,7 +856,7 @@ class Engine:
             wc = inp.opened.mutated_write_cap
             c.group, c.write_cap, c.next_write = self._traced(g), wc, wc[len(wc) - INDEX_SIZE :]
             c.joining, c.cursors = None, {}
-            self._effects(c, g.handle(mev.EpochChanged(self.epoch)))
+            self._effects(c, c.group.handle(mev.EpochChanged(self.epoch)))
             self._notice(c, "joined")
         elif isinstance(inp, Induct):
             c = self._chat(inp.chat)

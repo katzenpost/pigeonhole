@@ -158,10 +158,14 @@ def test_scan_and_remove(world):
     bob.close()
 
 
-def test_group_made_late_in_a_high_epoch_keeps_its_records(world):
+@pytest.mark.parametrize("traced", [False, True], ids=["plain", "traced"])
+def test_group_made_late_in_a_high_epoch_keeps_its_records(world, traced, monkeypatch, tmp_path):
     """The replicas are at epoch 491 when the group is made, as on a real
     network. The first message must still be found by the acknowledgement
-    that names it after the next epoch report."""
+    that names it after the next epoch report. With a trace recording, the
+    group the engine keeps is the traced one, so the epoch must reach it."""
+    if traced:
+        monkeypatch.setenv("PIGEONHOLE_TRACE", str(tmp_path / "trace.jsonl"))
     sim, clock, make = world
     sim.epoch = 491
     alice, bob = join(make, sim)
